@@ -166,6 +166,9 @@ pub struct ExportSize {
 /// so the built-in template matches the reference output. `info.image_count` is the
 /// total number of atlas sheets produced. `images` and `options` are exposed to the
 /// template context. `vars` are extra key-value pairs exposed as `vars.<key>`.
+/// `all_groups` spans every sheet (index, atlas name, sprites) and feeds the
+/// `all_sprites` context — in a multi-sheet run `sprites` only holds the current
+/// sheet, while `all_sprites` always lists every sprite across all sheets.
 pub fn start_exporter(
     type_name: &str,
     rects: &[RectData],
@@ -176,6 +179,7 @@ pub fn start_exporter(
     vars: &Vars,
     images: &[AtlasInfo],
     image_count: usize,
+    all_groups: &[(u32, String, &[RectData])],
     options: &PackOptions,
 ) -> Result<String, String> {
     let template = resolve_template(type_name, template)?;
@@ -186,14 +190,21 @@ pub fn start_exporter(
         cur_image_index: sheet_index,
         cur_image: image.to_string(),
     };
-    render(&template, &prepared.rects, &info, &prepared.vars, images, options)
+    let all_sprites: Vec<ExportRect> = all_groups
+        .iter()
+        .flat_map(|(index, image, rects)| {
+            prepare_data(rects, remove_file_extension, *index, image, false, vars).rects
+        })
+        .collect();
+    render(&template, &prepared.rects, &info, &prepared.vars, images, &all_sprites, options)
 }
 
 /// Export a single merged metadata file covering multiple sheets. Each sprite is
 /// stamped with the `image` (atlas file name) and `index` (atlas sheet index) of the
 /// sheet it belongs to. `groups` holds (sheet_index, image_name, sprites) per sheet.
 /// `info.image_count` is the total number of atlas sheets produced. `images` and
-/// `options` are exposed to the template context.
+/// `options` are exposed to the template context. In merged output `sprites` and
+/// `all_sprites` are identical (both span every sheet).
 pub fn start_exporter_merged(
     type_name: &str,
     groups: &[(u32, String, &[RectData])],
@@ -223,7 +234,8 @@ pub fn start_exporter_merged(
         cur_image_index,
         cur_image,
     };
-    render(&template, &export_rects, &info, vars, images, options)
+    // `export_rects` already spans every sheet, so sprites == all_sprites here.
+    render(&template, &export_rects, &info, vars, images, &export_rects, options)
 }
 
 /// Resolve the template to render: a custom template file when given, otherwise the
@@ -306,12 +318,14 @@ fn render(
     info: &ExportInfo,
     vars: &Vars,
     images: &[AtlasInfo],
+    all_sprites: &[ExportRect],
     options: &PackOptions,
 ) -> Result<String, String> {
     let atlas_info = |i: &AtlasInfo| {
         serde_json::json!({ "name": i.name, "index": i.index, "width": i.width, "height": i.height })
     };
     let sprites: Vec<serde_json::Value> = rects.iter().map(rect_to_json).collect();
+    let all_sprites_json: Vec<serde_json::Value> = all_sprites.iter().map(rect_to_json).collect();
     let images_json: Vec<serde_json::Value> = images.iter().map(atlas_info).collect();
     // image_dict maps atlas file name -> atlas info, so a sprite's atlas can be
     // looked up by name (`image_dict[r.image]`) instead of by `index`, which may
@@ -329,6 +343,7 @@ fn render(
     let ctx = serde_json::json!({
         "exports": exports,
         "sprites": sprites,
+        "all_sprites": all_sprites_json,
         "images": images_json,
         "image_dict": image_dict,
         "vars": vars,
@@ -424,7 +439,7 @@ mod tests {
     fn per_sheet_output_has_no_image_or_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_HASH_TEMPLATE, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(JSON_HASH_TEMPLATE, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &rects, &PackOptions::default()).unwrap();
         // The config name comes from options.texture_name, and per-sheet output has no
         // image/index stamping.
         assert!(out.contains("\"name\": \"atlas.png\""));
@@ -436,7 +451,7 @@ mod tests {
     fn merged_hash_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_HASH_TEMPLATE, &rects, &sample_info(true, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(JSON_HASH_TEMPLATE, &rects, &sample_info(true, 1, 0, ""), &vars, &[], &rects, &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         assert!(out.contains("\"image\": \"atlas-2.png\""));
@@ -449,7 +464,7 @@ mod tests {
     fn merged_array_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_ARRAY_TEMPLATE, &rects, &sample_info(true, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(JSON_ARRAY_TEMPLATE, &rects, &sample_info(true, 1, 0, ""), &vars, &[], &rects, &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         // JsonArray mirrors the struct order: name, image, index
@@ -466,7 +481,7 @@ mod tests {
         vars.insert("author".into(), serde_json::json!("me"));
         vars.insert("version".into(), serde_json::json!(2));
         let tpl = "author={{ vars.author | to_json }} version={{ vars.version }}";
-        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &rects, &PackOptions::default()).unwrap();
         assert_eq!(out, "author=\"me\" version=2");
     }
 
@@ -491,7 +506,7 @@ mod tests {
 {% for r in sprites %}    "{{ r.name | without_extname }}": { "source": {{ r.index }} }{% if not loop.last %},{% endif %}
 {% endfor %}  } }
 }"#;
-        let out = render(tpl, &rects, &sample_info(true, 2, 0, ""), &vars, &images, &opts).unwrap();
+        let out = render(tpl, &rects, &sample_info(true, 2, 0, ""), &vars, &images, &rects, &opts).unwrap();
         assert!(out.contains("\"files\": [\"atlas-0.png\",\"atlas-1.png\"]"));
         assert!(out.contains("\"ghosthand.img\""));
         assert!(out.contains("\"a\": { \"source\": 1 }"));
@@ -503,6 +518,7 @@ mod tests {
             &sample_info(false, 1, 0, ""),
             &vars,
             &[],
+            &rects,
             &PackOptions::default(),
         )
         .unwrap();
@@ -520,7 +536,7 @@ mod tests {
             AtlasInfo { name: "atlas-2.png".into(), index: 2, width: 128, height: 32 },
         ];
         let tpl = "{% for r in sprites %}{{ r.image }}:{{ image_dict[r.image].width }}x{{ image_dict[r.image].height }};{% endfor %}";
-        let out = render(tpl, &rects, &sample_info(true, 2, 0, ""), &vars, &images, &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(true, 2, 0, ""), &vars, &images, &rects, &PackOptions::default()).unwrap();
         assert_eq!(out, "atlas-1.png:64x64;atlas-2.png:128x32;");
     }
 
@@ -530,7 +546,7 @@ mod tests {
         let mut vars = Vars::new();
         vars.insert("win_path".into(), serde_json::json!("dir\\file.png"));
         let tpl = "{{ '/a/b/c' | basename }}|{{ 'c' | basename }}|{{ vars.win_path | basename }}";
-        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &rects, &PackOptions::default()).unwrap();
         assert_eq!(out, "c|c|file.png");
     }
 
@@ -546,7 +562,7 @@ mod tests {
             ..Default::default()
         };
         let tpl = "{{ options.width }}x{{ options.height }} pad={{ options.padding }} single={{ options.single_config }} name={{ options.texture_name }}";
-        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &opts).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &rects, &opts).unwrap();
         assert_eq!(out, "1024x512 pad=2 single=true name=atlas");
     }
 
@@ -561,10 +577,41 @@ mod tests {
         ];
         // Merged export over 3 sheets: exports.single_config=true, image_count=3.
         let tpl = "sc={{ exports.single_config }} n={{ exports.image_count }} cur={{ exports.cur_image_index }} w={{ image_dict[exports.cur_image].width }}";
-        let out = render(tpl, &rects, &sample_info(true, 3, 0, "atlas-0.png"), &vars, &images, &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(true, 3, 0, "atlas-0.png"), &vars, &images, &rects, &PackOptions::default()).unwrap();
         assert_eq!(out, "sc=true n=3 cur=0 w=64");
         // Per-sheet export over a single sheet.
-        let out = render(tpl, &rects, &sample_info(false, 1, 2, "atlas-2.png"), &vars, &images, &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 2, "atlas-2.png"), &vars, &images, &rects, &PackOptions::default()).unwrap();
         assert_eq!(out, "sc=false n=1 cur=2 w=256");
+    }
+
+    #[test]
+    fn all_sprites_spans_every_sheet() {
+        // Per-sheet export of sheet 0: `sprites` only holds the current sheet,
+        // `all_sprites` always lists every sprite across all sheets.
+        let sheet0 = vec![ExportRect {
+            name: "a.png".into(),
+            image: "atlas-0.png".into(),
+            index: 0,
+            frame: ExportFrame { x: 0, y: 0, w: 10, h: 20 },
+            rotated: false,
+            trimmed: false,
+            sprite_source_size: ExportFrame { x: 0, y: 0, w: 10, h: 20 },
+            source_size: ExportSize { w: 10, h: 20 },
+        }];
+        let sheet1 = vec![ExportRect {
+            name: "b.png".into(),
+            image: "atlas-1.png".into(),
+            index: 1,
+            frame: ExportFrame { x: 0, y: 0, w: 30, h: 40 },
+            rotated: false,
+            trimmed: false,
+            sprite_source_size: ExportFrame { x: 0, y: 0, w: 30, h: 40 },
+            source_size: ExportSize { w: 30, h: 40 },
+        }];
+        let all = [sheet0[0].clone(), sheet1[0].clone()];
+        let vars = Vars::new();
+        let tpl = "sprites={{ sprites | length }} all={{ all_sprites | length }};{% for r in all_sprites %}{{ r.name }}={{ r.image }};{% endfor %}";
+        let out = render(tpl, &sheet0, &sample_info(false, 2, 0, "atlas-0.png"), &vars, &[], &all, &PackOptions::default()).unwrap();
+        assert_eq!(out, "sprites=1 all=2;a.png=atlas-0.png;b.png=atlas-1.png;");
     }
 }

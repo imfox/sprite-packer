@@ -235,7 +235,8 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 | 变量 | 类型 | 说明 |
 |---|---|---|
 | `exports` | 对象 | 本次导出的生成信息，见下表 |
-| `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
+| `sprites` | 数组 | 当前这份配置涉及到的精灵，每个精灵一个对象，字段见下表。多图集且非合并模式时只包含当前 sheet 的精灵 |
+| `all_sprites` | 数组 | 所有图集的全部精灵，每个精灵一个对象，字段同 `sprites`。任何情况下都包含全部数据；遍历时可结合 `r.image` / `r.index` 判断精灵属于哪张图集 |
 | `images` | 数组 | 每张图集一个对象，按 sheet 顺序排列，字段见下表「图集信息对象」 |
 | `image_dict` | 对象 | 以图集文件名为键的映射，值为图集信息对象（字段见下表「图集信息对象」）。遍历 sprites 时可用 `image_dict[r.image]` 取当前精灵所属图集的信息。按图集名访问而不是按 `index` 数组下标，因为 `index` 可能不从 0 开始（受 `--sheet-start-index` 影响） |
 | `options` | 对象 | 本次打包的全部生成参数（`PackOptions`，snake_case 键），如 `options.single_config`、`options.width`、`options.padding`、`options.allow_rotation`。其中 `options.input` 是输入目录路径，可用 `| basename` 取出最后一段 |

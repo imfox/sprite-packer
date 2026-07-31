@@ -21,7 +21,29 @@ impl FilesProcessor {
         // Multi-sheet configs can be merged into a single metadata file
         let merged = multi_sheet && options.single_config;
 
-        let mut groups: Vec<(u32, String, &[RectData])> = Vec::new();
+        // Pre-compute each sheet's index and file names.
+        let sheets_meta: Vec<(u32, String, String)> = sheets
+            .iter()
+            .enumerate()
+            .map(|(sheet_idx, _)| {
+                let index = options.sheet_start_index + sheet_idx as u32;
+                let fname = if multi_sheet || options.sheet_name_style {
+                    format!("{}{}{}", options.texture_name, sheet_suffix, index)
+                } else {
+                    options.texture_name.clone()
+                };
+                (index, fname.clone(), format!("{}.png", fname))
+            })
+            .collect();
+
+        // All sheets as (sheet index, atlas file name, sprites). Merged exports
+        // iterate these directly; per-sheet exports use them for `all_sprites`.
+        let groups: Vec<(u32, String, &[RectData])> = sheets
+            .iter()
+            .zip(&sheets_meta)
+            .map(|(sheet, (index, _, image_name))| (*index, image_name.clone(), sheet.as_slice()))
+            .collect();
+
         let mut images: Vec<AtlasInfo> = Vec::new();
 
         for (sheet_idx, sheet) in sheets.iter().enumerate() {
@@ -71,18 +93,8 @@ impl FilesProcessor {
             let _ = img.write_to(&mut png_buf, image::ImageFormat::Png);
             let image_data = png_buf.into_inner();
 
-            // Sheet index used in the file name and stamped on each sprite
-            let index = options.sheet_start_index + sheet_idx as u32;
-
-            // Generate file name. `sheet_name_style` always applies the
-            // multi-sheet naming even for a single sheet.
-            let fname = if multi_sheet || options.sheet_name_style {
-                format!("{}{}{}", options.texture_name, sheet_suffix, index)
-            } else {
-                options.texture_name.clone()
-            };
-
-            let image_name = format!("{}.png", fname);
+            // Sheet index and file name computed above (per-sheet naming rules)
+            let (index, fname, image_name) = sheets_meta[sheet_idx].clone();
 
             // Atlas info exposed to the template context as `images`
             let atlas_info = AtlasInfo {
@@ -100,7 +112,7 @@ impl FilesProcessor {
             });
 
             if merged {
-                groups.push((index, image_name, sheet));
+                // Metadata for all sheets is emitted after the loop
             } else {
                 // Push per-sheet metadata
                 let metadata = exporters::start_exporter(
@@ -113,6 +125,7 @@ impl FilesProcessor {
                     &options.vars,
                     std::slice::from_ref(&atlas_info),
                     sheets.len(),
+                    &groups,
                     options,
                 )?;
                 results.push(PackResult {
