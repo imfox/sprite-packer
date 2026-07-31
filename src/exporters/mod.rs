@@ -30,7 +30,7 @@ pub struct AtlasInfo {
 /// into one config (single_config=true), each sprite is stamped with the atlas `image`
 /// and `index` it belongs to.
 const JSON_HASH_TEMPLATE: &str = r#"{
-  "name": "{{ base_name }}.png",
+  "name": "{{ options.texture_name }}.png",
   "sprites": [
 {% for r in sprites %}    {
       "frame": {
@@ -155,7 +155,6 @@ pub struct ExportSize {
 pub fn start_exporter(
     type_name: &str,
     rects: &[RectData],
-    base_name: &str,
     sheet_index: u32,
     image: &str,
     remove_file_extension: bool,
@@ -170,7 +169,6 @@ pub fn start_exporter(
     render(
         &template,
         &prepared.rects,
-        base_name,
         prepared.single_config,
         &prepared.vars,
         images,
@@ -186,7 +184,6 @@ pub fn start_exporter(
 pub fn start_exporter_merged(
     type_name: &str,
     groups: &[(u32, String, &[RectData])],
-    base_name: &str,
     remove_file_extension: bool,
     template: Option<&str>,
     vars: &Vars,
@@ -203,7 +200,7 @@ pub fn start_exporter_merged(
         })
         .collect();
 
-    render(&template, &export_rects, base_name, true, vars, images, input_dir, options)
+    render(&template, &export_rects, true, vars, images, input_dir, options)
 }
 
 /// Resolve the template to render: a custom template file when given, otherwise the
@@ -283,7 +280,6 @@ fn prepare_data(
 fn render(
     template: &str,
     rects: &[ExportRect],
-    base_name: &str,
     single_config: bool,
     vars: &Vars,
     images: &[AtlasInfo],
@@ -296,7 +292,6 @@ fn render(
         .map(|i| serde_json::json!({ "name": i.name, "index": i.index, "width": i.width, "height": i.height }))
         .collect();
     let ctx = serde_json::json!({
-        "base_name": base_name,
         "single_config": single_config,
         "sprites": sprites,
         "images": images,
@@ -372,51 +367,23 @@ mod tests {
         ]
     }
 
-    /// Per-sheet (single_config=false) template from before the single-config feature:
-    /// output must stay byte-identical to it so existing configs don't change.
-    const OLD_HASH_TEMPLATE: &str = r#"{
-  "name": "{{ base_name }}.png",
-  "sprites": [
-{% for r in sprites %}    {
-      "frame": {
-        "h": {{ r.frame.h }},
-        "w": {{ r.frame.w }},
-        "x": {{ r.frame.x }},
-        "y": {{ r.frame.y }}
-      },
-      "name": {{ r.name | to_json }},
-      "rotated": {{ r.rotated }},
-      "sourceSize": {
-        "h": {{ r.source_size.h }},
-        "w": {{ r.source_size.w }}
-      },
-      "spriteSourceSize": {
-        "h": {{ r.sprite_source_size.h }},
-        "w": {{ r.sprite_source_size.w }},
-        "x": {{ r.sprite_source_size.x }},
-        "y": {{ r.sprite_source_size.y }}
-      },
-      "trimmed": {{ r.trimmed }}
-    }{% if not loop.last %},{% endif %}
-{% endfor %}  ]
-}"#;
-
     #[test]
-    fn per_sheet_output_matches_old_template() {
+    fn per_sheet_output_has_no_image_or_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let old = render(OLD_HASH_TEMPLATE, &rects, "atlas", false, &vars, &[], "", &PackOptions::default()).unwrap();
-        let new = render(JSON_HASH_TEMPLATE, &rects, "atlas", false, &vars, &[], "", &PackOptions::default()).unwrap();
-        assert_eq!(old, new);
-        assert!(!new.contains("image"));
-        assert!(!new.contains("index"));
+        let out = render(JSON_HASH_TEMPLATE, &rects, false, &vars, &[], "", &PackOptions::default()).unwrap();
+        // The config name comes from options.texture_name, and per-sheet output has no
+        // image/index stamping.
+        assert!(out.contains("\"name\": \"atlas.png\""));
+        assert!(!out.contains("image"));
+        assert!(!out.contains("index"));
     }
 
     #[test]
     fn merged_hash_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_HASH_TEMPLATE, &rects, "atlas", true, &vars, &[], "", &PackOptions::default()).unwrap();
+        let out = render(JSON_HASH_TEMPLATE, &rects, true, &vars, &[], "", &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         assert!(out.contains("\"image\": \"atlas-2.png\""));
@@ -429,7 +396,7 @@ mod tests {
     fn merged_array_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_ARRAY_TEMPLATE, &rects, "atlas", true, &vars, &[], "", &PackOptions::default()).unwrap();
+        let out = render(JSON_ARRAY_TEMPLATE, &rects, true, &vars, &[], "", &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         // JsonArray mirrors the struct order: name, image, index
@@ -446,7 +413,7 @@ mod tests {
         vars.insert("author".into(), serde_json::json!("me"));
         vars.insert("version".into(), serde_json::json!(2));
         let tpl = "author={{ vars.author | to_json }} version={{ vars.version }}";
-        let out = render(tpl, &rects, "atlas", false, &vars, &[], "", &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, false, &vars, &[], "", &PackOptions::default()).unwrap();
         assert_eq!(out, "author=\"me\" version=2");
     }
 
@@ -466,7 +433,7 @@ mod tests {
 {% for r in sprites %}    "{{ r.name | strip_ext }}": { "source": {{ r.index }} }{% if not loop.last %},{% endif %}
 {% endfor %}  } }
 }"#;
-        let out = render(tpl, &rects, "atlas", true, &vars, &images, "ghosthand.img", &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, true, &vars, &images, "ghosthand.img", &PackOptions::default()).unwrap();
         assert!(out.contains("\"files\": [\"atlas-0.png\",\"atlas-1.png\"]"));
         assert!(out.contains("\"ghosthand.img\""));
         assert!(out.contains("\"a\": { \"source\": 1 }"));
@@ -475,7 +442,6 @@ mod tests {
         let out2 = render(
             "{% for r in sprites %}{{ r.image }} {{ r.index }};{% endfor %}",
             &rects,
-            "atlas",
             false,
             &vars,
             &[],
@@ -498,7 +464,7 @@ mod tests {
             ..Default::default()
         };
         let tpl = "{{ options.width }}x{{ options.height }} pad={{ options.padding }} single={{ options.single_config }} name={{ options.texture_name }}";
-        let out = render(tpl, &rects, "atlas", false, &vars, &[], "", &opts).unwrap();
+        let out = render(tpl, &rects, false, &vars, &[], "", &opts).unwrap();
         assert_eq!(out, "1024x512 pad=2 single=true name=atlas");
     }
 }

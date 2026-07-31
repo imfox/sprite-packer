@@ -105,7 +105,6 @@ impl FilesProcessor {
                 let metadata = exporters::start_exporter(
                     &options.exporter,
                     sheet,
-                    &fname,
                     index,
                     &image_name,
                     options.remove_file_extension,
@@ -127,7 +126,6 @@ impl FilesProcessor {
             let metadata = exporters::start_exporter_merged(
                 &options.exporter,
                 &groups,
-                &options.texture_name,
                 options.remove_file_extension,
                 options.template.as_deref(),
                 &options.vars,

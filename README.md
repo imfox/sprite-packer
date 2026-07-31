@@ -229,7 +229,6 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 
 | 变量 | 类型 | 说明 |
 |---|---|---|
-| `base_name` | 字符串 | atlas 基础文件名（对应图片输出 `{base_name}.png`） |
 | `single_config` | 布尔 | 本次导出是否为合并模式：`true` 时所有图集合并为一份配置（每个精灵带 `image`、`index` 字段），`false` 时每个图集各生成一份配置 |
 | `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
 | `images` | 数组 | 每张图集一个对象，按 sheet 顺序排列：`name`（图集文件名，如 `atlas-0.png`）、`index`（图集序号）、`width`、`height`（渲染后图集的宽高） |
@@ -261,7 +260,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<TextureAtlas imagePath="{{ base_name }}.png">
+<TextureAtlas imagePath="{{ options.texture_name }}.png">
 {% for r in sprites %}	<SubTexture name="{{ r.name }}" x="{{ r.frame.x }}" y="{{ r.frame.y }}" width="{{ r.frame.w }}" height="{{ r.frame.h }}"{% if r.rotated %} rotated="true"{% endif %}{% if r.trimmed %} frameX="{{ r.sprite_source_size.x }}" frameY="{{ r.sprite_source_size.y }}" frameWidth="{{ r.source_size.w }}" frameHeight="{{ r.source_size.h }}"{% endif %}/>
 {% endfor %}</TextureAtlas>
 ```
@@ -272,7 +271,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 
 ```jinja
 {
-  "name": "{{ base_name }}.png",
+  "name": "{{ options.texture_name }}.png",
   "sprites": [
 {% for r in sprites %}    {
       "frame": {
