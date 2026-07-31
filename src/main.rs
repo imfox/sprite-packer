@@ -11,46 +11,46 @@ use sprite_packer::{pack, scan_dir, PackOptions};
 struct ConfigFile {
     input: Option<String>,
     output: Option<String>,
-    #[serde(alias = "texture-name")]
+    #[serde(alias = "texture-name", alias = "texture_name")]
     texture_name: Option<String>,
-    #[serde(alias = "sheet-name-suffix")]
+    #[serde(alias = "sheet-name-suffix", alias = "sheet_name_suffix")]
     sheet_name_suffix: Option<String>,
-    #[serde(alias = "sheet-start-index")]
+    #[serde(alias = "sheet-start-index", alias = "sheet_start_index")]
     sheet_start_index: Option<u32>,
-    #[serde(alias = "sheet-name-style")]
+    #[serde(alias = "sheet-name-style", alias = "sheet_name_style")]
     sheet_name_style: Option<bool>,
-    #[serde(alias = "single-config")]
+    #[serde(alias = "single-config", alias = "single_config")]
     single_config: Option<bool>,
-    #[serde(alias = "power-of-two")]
+    #[serde(alias = "power-of-two", alias = "power_of_two")]
     power_of_two: Option<bool>,
-    #[serde(alias = "fixed-size")]
+    #[serde(alias = "fixed-size", alias = "fixed_size")]
     fixed_size: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
     padding: Option<u32>,
     extrude: Option<u32>,
-    #[serde(alias = "allow-rotation")]
+    #[serde(alias = "allow-rotation", alias = "allow_rotation")]
     allow_rotation: Option<bool>,
-    #[serde(alias = "detect-identical")]
+    #[serde(alias = "detect-identical", alias = "detect_identical")]
     detect_identical: Option<bool>,
-    #[serde(alias = "allow-trim")]
+    #[serde(alias = "allow-trim", alias = "allow_trim")]
     allow_trim: Option<bool>,
-    #[serde(alias = "alpha-threshold")]
+    #[serde(alias = "alpha-threshold", alias = "alpha_threshold")]
     alpha_threshold: Option<u8>,
     scale: Option<f32>,
-    #[serde(alias = "scale-method")]
+    #[serde(alias = "scale-method", alias = "scale_method")]
     scale_method: Option<String>,
     packer: Option<String>,
-    #[serde(alias = "packer-method")]
+    #[serde(alias = "packer-method", alias = "packer_method")]
     packer_method: Option<String>,
     exporter: Option<String>,
     filter: Option<String>,
-    #[serde(alias = "texture-format")]
+    #[serde(alias = "texture-format", alias = "texture_format")]
     texture_format: Option<String>,
-    #[serde(alias = "remove-file-extension")]
+    #[serde(alias = "remove-file-extension", alias = "remove_file_extension")]
     remove_file_extension: Option<bool>,
     template: Option<String>,
-    #[serde(alias = "template-extension")]
+    #[serde(alias = "template-extension", alias = "template_extension")]
     template_extension: Option<String>,
     /// Extra key-value variables exposed to the template context as `vars.<key>`.
     vars: Option<std::collections::HashMap<String, serde_json::Value>>,
@@ -175,9 +175,10 @@ struct Cli {
     vars: Vec<String>,
 }
 
-/// Default config template written by --gen-config.
+/// Default config template written by --gen-config. Uses kebab-case keys to match
+/// the command-line argument names (--texture-name, --sheet-name-style, ...).
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "kebab-case")]
 struct DefaultConfig {
     input: &'static str,
     output: &'static str,
@@ -499,12 +500,13 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> Result<Pa
         template: if cli_wins("template") {
             cli.template.clone()
         } else {
-            cfg.template.clone().or(d.template)
+            // The generated default config writes "" for no custom template.
+            cfg.template.clone().filter(|s| !s.is_empty()).or(d.template)
         },
         template_extension: if cli_wins("template_extension") {
             cli.template_extension.clone()
         } else {
-            cfg.template_extension.clone().or(d.template_extension)
+            cfg.template_extension.clone().filter(|s| !s.is_empty()).or(d.template_extension)
         },
         vars: merge_vars(cfg, cli)?,
         // Filled in from the resolved input path in main().

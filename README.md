@@ -107,7 +107,7 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 
 ## 配置文件
 
-配置为 JSON 格式，**键名使用 camelCase**（与 free-tex-packer-core 一致），同时兼容 kebab-case（如 `power-of-two`）。
+配置为 JSON 格式。键名与命令行参数一致（kebab-case，如 `texture-name`），同时兼容 camelCase（如 `textureName`）与 snake_case（如 `texture_name`）。`--gen-config` 生成的默认模板使用 kebab-case。
 
 **优先级**：命令行显式传入的参数 > 配置文件 > 默认值。
 
@@ -123,31 +123,31 @@ sprite-packer --gen-config default.json
 {
     "input": "./images",
     "output": "./out",
-    "textureName": "atlas",
-    "sheetNameSuffix": "-",
-    "sheetStartIndex": 0,
-    "sheetNameStyle": false,
-    "singleConfig": false,
-    "powerOfTwo": false,
-    "fixedSize": false,
+    "texture-name": "atlas",
+    "sheet-name-suffix": "-",
+    "sheet-start-index": 0,
+    "sheet-name-style": false,
+    "single-config": false,
+    "power-of-two": false,
+    "fixed-size": false,
     "width": 2048,
     "height": 2048,
     "padding": 1,
     "extrude": 0,
-    "allowRotation": false,
-    "detectIdentical": true,
-    "allowTrim": true,
-    "alphaThreshold": 0,
+    "allow-rotation": false,
+    "detect-identical": true,
+    "allow-trim": true,
+    "alpha-threshold": 0,
     "scale": 1.0,
-    "scaleMethod": "BILINEAR",
+    "scale-method": "BILINEAR",
     "packer": "OptimalPacker",
-    "packerMethod": "SmartArea",
+    "packer-method": "SmartArea",
     "exporter": "JsonHash",
     "filter": "none",
-    "textureFormat": "png",
-    "removeFileExtension": false,
+    "texture-format": "png",
+    "remove-file-extension": false,
     "template": "",
-    "templateExtension": "",
+    "template-extension": "",
     "vars": {}
 }
 ```
