@@ -53,7 +53,9 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | `--gen-config <FILE>` | 生成默认配置文件模板并退出 | 无 |
 | `-q, --quiet` | 静默模式，不打印任何信息（错误仍输出到 stderr） | 关闭 |
 | `--texture-name <NAME>` | 输出文件基础名 | `atlas` |
+| `--sheet-name-suffix <S>` | 文件名中纹理名与 sheet 序号间的分隔符（如 `-` 对应 `atlas-0`） | `-` |
 | `--sheet-start-index <N>` | 多 sheet 文件名的起始序号（如 `atlas-0`、`atlas-1`） | `0` |
+| `--sheet-name-style` | 单张图集时也按多图集方式命名（`texture-name + sheet-name-suffix + index`，如 `atlas-0`） | `false` |
 | `--single-config [true/false]` | 多图集时合并为一个配置（每个精灵带 `image` 字段）；`false` 时每个图集各生成一份配置 | `false` |
 | `--width <N>` | 单张 atlas 最大宽度 | `2048` |
 | `--height <N>` | 单张 atlas 最大高度 | `2048` |
@@ -122,8 +124,9 @@ sprite-packer --gen-config default.json
     "input": "./images",
     "output": "./out",
     "textureName": "atlas",
-    "suffix": "-",
+    "sheetNameSuffix": "-",
     "sheetStartIndex": 0,
+    "sheetNameStyle": false,
     "singleConfig": false,
     "powerOfTwo": false,
     "fixedSize": false,

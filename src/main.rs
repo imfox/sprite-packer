@@ -13,9 +13,12 @@ struct ConfigFile {
     output: Option<String>,
     #[serde(alias = "texture-name")]
     texture_name: Option<String>,
-    suffix: Option<String>,
+    #[serde(alias = "sheet-name-suffix")]
+    sheet_name_suffix: Option<String>,
     #[serde(alias = "sheet-start-index")]
     sheet_start_index: Option<u32>,
+    #[serde(alias = "sheet-name-style")]
+    sheet_name_style: Option<bool>,
     #[serde(alias = "single-config")]
     single_config: Option<bool>,
     #[serde(alias = "power-of-two")]
@@ -80,9 +83,19 @@ struct Cli {
     #[arg(long = "texture-name", default_value = "atlas")]
     texture_name: String,
 
+    /// Separator between the texture name and sheet index in multi-sheet file names
+    /// (default "-" → atlas-0)
+    #[arg(long = "sheet-name-suffix", default_value = "-")]
+    sheet_name_suffix: String,
+
     /// Starting index for multi-sheet file names (default 0 → atlas-0, atlas-1)
     #[arg(long = "sheet-start-index", default_value = "0")]
     sheet_start_index: u32,
+
+    /// Always use the multi-sheet naming (texture-name + suffix + index, e.g. atlas-0)
+    /// even for a single sheet
+    #[arg(long = "sheet-name-style")]
+    sheet_name_style: bool,
 
     /// Merge all sheets into a single metadata file (--single-config or --single-config false).
     /// Set to false to emit one metadata file per sheet.
@@ -169,8 +182,9 @@ struct DefaultConfig {
     input: &'static str,
     output: &'static str,
     texture_name: &'static str,
-    suffix: &'static str,
+    sheet_name_suffix: &'static str,
     sheet_start_index: u32,
+    sheet_name_style: bool,
     single_config: bool,
     power_of_two: bool,
     fixed_size: bool,
@@ -201,8 +215,9 @@ fn default_config() -> DefaultConfig {
         input: "",
         output: "",
         texture_name: "atlas",
-        suffix: "-",
+        sheet_name_suffix: "-",
         sheet_start_index: 0,
+        sheet_name_style: false,
         single_config: false,
         power_of_two: false,
         fixed_size: false,
@@ -387,11 +402,20 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> Result<Pa
         } else {
             cfg.texture_name.clone().unwrap_or(d.texture_name)
         },
-        suffix: cfg.suffix.clone().unwrap_or(d.suffix),
+        sheet_name_suffix: if cli_wins("sheet_name_suffix") {
+            cli.sheet_name_suffix.clone()
+        } else {
+            cfg.sheet_name_suffix.clone().unwrap_or(d.sheet_name_suffix)
+        },
         sheet_start_index: if cli_wins("sheet_start_index") {
             cli.sheet_start_index
         } else {
             cfg.sheet_start_index.unwrap_or(d.sheet_start_index)
+        },
+        sheet_name_style: if cli_wins("sheet_name_style") {
+            cli.sheet_name_style
+        } else {
+            cfg.sheet_name_style.unwrap_or(d.sheet_name_style)
         },
         single_config: if cli_wins("single_config") {
             cli.single_config

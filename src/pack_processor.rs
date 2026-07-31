@@ -17,9 +17,14 @@ enum Combo {
 #[derive(Debug, Clone, Serialize)]
 pub struct PackOptions {
     pub texture_name: String,
-    pub suffix: String,
+    /// Separator between the texture name and the sheet index in multi-sheet file
+    /// names (e.g. `-` in `atlas-0`).
+    pub sheet_name_suffix: String,
     /// Starting index for multi-sheet file names (e.g. `atlas-1`, `atlas-2`).
     pub sheet_start_index: u32,
+    /// Always use the multi-sheet naming (`texture_name + sheet_name_suffix + index`)
+    /// even for a single sheet.
+    pub sheet_name_style: bool,
     /// Merge all sheets' sprites into a single metadata file (each sprite stamped
     /// with its image). When false, generate one metadata file per sheet.
     pub single_config: bool,
@@ -57,8 +62,9 @@ impl Default for PackOptions {
     fn default() -> Self {
         Self {
             texture_name: "atlas".into(),
-            suffix: "-".into(),
+            sheet_name_suffix: "-".into(),
             sheet_start_index: 0,
+            sheet_name_style: false,
             single_config: false,
             width: 2048,
             height: 2048,

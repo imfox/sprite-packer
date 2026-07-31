@@ -16,7 +16,7 @@ impl FilesProcessor {
         options: &PackOptions,
     ) -> Result<Vec<PackResult>, String> {
         let mut results = Vec::new();
-        let suffix = &options.suffix;
+        let sheet_suffix = &options.sheet_name_suffix;
         let multi_sheet = sheets.len() > 1;
         // Multi-sheet configs can be merged into a single metadata file
         let merged = multi_sheet && options.single_config;
@@ -74,9 +74,10 @@ impl FilesProcessor {
             // Sheet index used in the file name and stamped on each sprite
             let index = options.sheet_start_index + sheet_idx as u32;
 
-            // Generate file name
-            let fname = if multi_sheet {
-                format!("{}{}{}", options.texture_name, suffix, index)
+            // Generate file name. `sheet_name_style` always applies the
+            // multi-sheet naming even for a single sheet.
+            let fname = if multi_sheet || options.sheet_name_style {
+                format!("{}{}{}", options.texture_name, sheet_suffix, index)
             } else {
                 options.texture_name.clone()
             };
