@@ -286,15 +286,23 @@ fn render(
     input_dir: &str,
     options: &PackOptions,
 ) -> Result<String, String> {
+    let atlas_info = |i: &AtlasInfo| {
+        serde_json::json!({ "name": i.name, "index": i.index, "width": i.width, "height": i.height })
+    };
     let sprites: Vec<serde_json::Value> = rects.iter().map(rect_to_json).collect();
-    let images: Vec<serde_json::Value> = images
+    let images_json: Vec<serde_json::Value> = images.iter().map(atlas_info).collect();
+    // image_dict maps atlas file name -> atlas info, so a sprite's atlas can be
+    // looked up by name (`image_dict[r.image]`) instead of by `index`, which may
+    // not start at 0 and cannot be used as an array offset.
+    let image_dict: serde_json::Value = images
         .iter()
-        .map(|i| serde_json::json!({ "name": i.name, "index": i.index, "width": i.width, "height": i.height }))
+        .map(|i| (i.name.clone(), atlas_info(i)))
         .collect();
     let ctx = serde_json::json!({
         "single_config": single_config,
         "sprites": sprites,
-        "images": images,
+        "images": images_json,
+        "image_dict": image_dict,
         "input_dir": input_dir,
         "vars": vars,
         "options": options,
@@ -450,6 +458,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out2, "atlas-1.png 1;atlas-2.png 2;");
+    }
+
+    #[test]
+    fn image_dict_lookup_by_name() {
+        let rects = sample_rects();
+        let vars = Vars::new();
+        // Index starts at 1 (not 0), so the `images` array cannot be indexed by
+        // r.index — atlas info must be looked up by the sprite's atlas name.
+        let images = vec![
+            AtlasInfo { name: "atlas-1.png".into(), index: 1, width: 64, height: 64 },
+            AtlasInfo { name: "atlas-2.png".into(), index: 2, width: 128, height: 32 },
+        ];
+        let tpl = "{% for r in sprites %}{{ r.image }}:{{ image_dict[r.image].width }}x{{ image_dict[r.image].height }};{% endfor %}";
+        let out = render(tpl, &rects, true, &vars, &images, "", &PackOptions::default()).unwrap();
+        assert_eq!(out, "atlas-1.png:64x64;atlas-2.png:128x32;");
     }
 
     #[test]
