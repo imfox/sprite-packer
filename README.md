@@ -48,6 +48,7 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | 参数 | 说明 | 默认值 |
 |---|---|---|
 | `-i, --input <DIR>` | 输入目录（递归扫描图片） | 必填 |
+| `--files <FILES>` | 逗号分隔的文件名（相对 `--input`），只打包这些文件；省略时遍历 `--input` 目录 | 无 |
 | `-o, --output <DIR>` | 输出目录 | 必填 |
 | `--config <FILE>` | JSON 配置文件，命令行参数优先 | 无 |
 | `--gen-config <FILE>` | 生成默认配置文件模板并退出 | 无 |
@@ -123,6 +124,7 @@ sprite-packer --gen-config default.json
 {
     "input": "./images",
     "output": "./out",
+    "files": "",
     "texture-name": "atlas",
     "sheet-name-suffix": "-",
     "sheet-start-index": 0,

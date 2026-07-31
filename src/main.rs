@@ -2,7 +2,7 @@ use clap::parser::{ArgMatches, ValueSource};
 use clap::{CommandFactory, FromArgMatches, Parser};
 use serde::{Deserialize, Serialize};
 
-use sprite_packer::{pack, scan_dir, PackOptions};
+use sprite_packer::{load_sources, pack, PackOptions};
 
 /// JSON config file. All fields are optional — a value given on the command line
 /// overrides the same key here.
@@ -11,6 +11,7 @@ use sprite_packer::{pack, scan_dir, PackOptions};
 struct ConfigFile {
     input: Option<String>,
     output: Option<String>,
+    files: Option<String>,
     #[serde(alias = "texture-name", alias = "texture_name")]
     texture_name: Option<String>,
     #[serde(alias = "sheet-name-suffix", alias = "sheet_name_suffix")]
@@ -66,6 +67,11 @@ struct Cli {
     /// Output directory for atlas files
     #[arg(short = 'o', long = "output", value_name = "DIR")]
     output: Option<String>,
+
+    /// Comma-separated image file names to pack, relative to --input. When
+    /// omitted, all images under --input are packed.
+    #[arg(long = "files", value_name = "FILES")]
+    files: Option<String>,
 
     /// JSON config file with packing options. Command-line args take priority.
     #[arg(long = "config", value_name = "FILE")]
@@ -182,6 +188,7 @@ struct Cli {
 struct DefaultConfig {
     input: &'static str,
     output: &'static str,
+    files: &'static str,
     texture_name: &'static str,
     sheet_name_suffix: &'static str,
     sheet_start_index: u32,
@@ -215,6 +222,7 @@ fn default_config() -> DefaultConfig {
     DefaultConfig {
         input: "",
         output: "",
+        files: "",
         texture_name: "atlas",
         sheet_name_suffix: "-",
         sheet_start_index: 0,
@@ -308,14 +316,15 @@ fn main() {
     // Input directory path, exposed to the template context as `options.input`
     options.input = input.clone();
 
-    // 1. Scan directory
+    // 1. Load sources — explicit file list (relative to input) or scan directory
+    let files = cli.files.clone().or_else(|| cfg.files.clone());
     if !cli.quiet {
         println!("Scanning: {} ...", input);
     }
-    let sources = match scan_dir(&input) {
+    let sources = match load_sources(&input, files.as_deref()) {
         Ok(s) => {
             if s.is_empty() {
-                eprintln!("No supported images found in '{}'", input);
+                eprintln!("No images found in '{}'", input);
                 std::process::exit(1);
             }
             if !cli.quiet {

@@ -48,6 +48,31 @@ pub fn scan_dir(dir: &str) -> Result<Vec<SourceImage>, String> {
     Ok(sources)
 }
 
+/// Load source images. When `files` is a comma-separated list of file names
+/// (relative to `input`), load exactly those files in order; otherwise scan
+/// `input` recursively (see [`scan_dir`]).
+pub fn load_sources(input: &str, files: Option<&str>) -> Result<Vec<SourceImage>, String> {
+    let files = files.map(str::trim).filter(|s| !s.is_empty());
+    let Some(files) = files else {
+        return scan_dir(input);
+    };
+
+    let mut sources = Vec::new();
+    for f in files.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let path = Path::new(input).join(f);
+        match image::open(&path) {
+            Ok(img) => {
+                let name = normalize_name(&path);
+                sources.push(SourceImage { name, image: img });
+            }
+            Err(e) => {
+                return Err(format!("Cannot load '{}': {}", path.display(), e));
+            }
+        }
+    }
+    Ok(sources)
+}
+
 /// Normalize a file path to a sprite name (file name, keeping the extension).
 /// Mirrors free-tex-packer-core: names keep extensions unless `removeFileExtension`
 /// is set (stripped later during export).
