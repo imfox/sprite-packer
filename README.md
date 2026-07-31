@@ -174,11 +174,23 @@ TexturePacker 风格的哈希索引：
 
 与 JsonHash 相同的数据，但输出为数组形式（TexturePacker `--texture-format JSONArray` 风格）。
 
-### 多图集配置
+### 多图集配置导出
 
-默认情况下（`--multi-config` 开启），每张图集各生成一份配置（`atlas-0.json`、`atlas-1.json`…）。
+碎图较多、超过单张图集尺寸上限时，会自动拆分为多张图集（`atlas-0.png`、`atlas-1.png`…）。
 
-设置 `--multi-config false` 时，多张图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带 `image`（所属图集文件名）与 `index`（图集序号，配合 `--sheet-start-index`）字段标明所属图集：
+**默认（`--multi-config` 开启，常见情况）**：每张图集各生成一份配置，配置只包含该图集自己的精灵，`name` 指向对应的图集文件。N 张图集产生 N 份配置（`atlas-0.json`、`atlas-1.json`…）。单张图集的配置格式如下：
+
+```json
+{
+    "name": "atlas-0.png",
+    "sprites": [
+        { "frame": { "x": 0, "y": 0, "w": 100, "h": 100 }, "name": "35.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 299, "y": 266, "w": 31, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } },
+        { "frame": { "x": 0, "y": 100, "w": 80, "h": 80 }, "name": "204.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 200, "y": 209, "w": 30, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } }
+    ]
+}
+```
+
+**合并为一份（可选）**：设置 `--multi-config false` 时，所有图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带 `image`（所属图集文件名）与 `index`（图集序号，配合 `--sheet-start-index`）字段标明所属图集：
 
 ```json
 {
@@ -190,7 +202,7 @@ TexturePacker 风格的哈希索引：
 }
 ```
 
-单图集时该参数无影响（本来就只有一个配置）。
+单图集（只有一张）时该参数无影响（本来就只有一个配置）。
 
 ## 自定义模板（MiniJinja）
 
