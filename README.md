@@ -16,6 +16,7 @@ Rust 实现的合图（Sprite Atlas）打包工具。将目录下多张小图片
 - **缩放（Scale）**：按比例缩放并选择缩放算法（BILINEAR 等）
 - **滤镜（Filter）**：identity / grayscale / mask
 - **配置文件**：JSON 配置文件，命令行参数优先
+- **自定义模板**：MiniJinja 模板驱动导出，可输出任意位置数据格式（XML、Unity 等）
 - **静默模式**：`-q` 不打印任何信息
 
 ## 支持格式
@@ -52,6 +53,7 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | `--gen-config <FILE>` | 生成默认配置文件模板并退出 | 无 |
 | `-q, --quiet` | 静默模式，不打印任何信息（错误仍输出到 stderr） | 关闭 |
 | `--texture-name <NAME>` | 输出文件基础名 | `atlas` |
+| `--sheet-start-index <N>` | 多 sheet 文件名的起始序号（如 `atlas-0`、`atlas-1`） | `0` |
 | `--width <N>` | 单张 atlas 最大宽度 | `2048` |
 | `--height <N>` | 单张 atlas 最大高度 | `2048` |
 | `--power-of-two` | 强制 Power-of-Two 尺寸 | `false` |
@@ -66,6 +68,8 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | `--remove-file-extension [true/false]` | 精灵名去掉扩展名 | `false` |
 | `--filter <NAME>` | 位图滤镜 | `none` |
 | `--scale <F>` | 缩放因子 | `1.0` |
+| `--template <FILE>` | 自定义 MiniJinja 模板文件，覆盖内置导出模板（见下文「自定义模板」） | 无 |
+| `--template-extension <EXT>` | 自定义模板输出的元数据文件扩展名 | 取 exporter 默认（`json`） |
 
 ### 打包器与方法
 
@@ -92,6 +96,9 @@ sprite-packer --gen-config my.config.json
 
 # 静默打包
 sprite-packer -i ./images -o ./out -q
+
+# 使用自定义模板（Starling XML 示例）
+sprite-packer -i ./images -o ./out --template starling.tpl --template-extension xml
 ```
 
 ## 配置文件
@@ -114,6 +121,7 @@ sprite-packer --gen-config default.json
     "output": "./out",
     "textureName": "atlas",
     "suffix": "-",
+    "sheetStartIndex": 0,
     "powerOfTwo": false,
     "fixedSize": false,
     "width": 2048,
@@ -131,7 +139,9 @@ sprite-packer --gen-config default.json
     "exporter": "JsonHash",
     "filter": "none",
     "textureFormat": "png",
-    "removeFileExtension": false
+    "removeFileExtension": false,
+    "template": "",
+    "templateExtension": ""
 }
 ```
 
@@ -159,6 +169,110 @@ TexturePacker 风格的哈希索引：
 ### JsonArray
 
 与 JsonHash 相同的数据，但输出为数组形式（TexturePacker `--texture-format JSONArray` 风格）。
+
+## 自定义模板（MiniJinja）
+
+内置的 JsonHash / JsonArray 使用 [MiniJinja](https://github.com/mitsuhiko/minijinja)（Jinja2 语法）模板生成。你可以传入自己的模板文件，把元数据输出成任意格式（XML、Unity、自定义文本等）。
+
+```bash
+sprite-packer -i ./images -o ./out --template starling.tpl --template-extension xml
+```
+
+- `--template` 指向一个 MiniJinja 模板文件，渲染结果替代内置导出器模板的输出
+- `--template-extension` 指定元数据输出文件的后缀（默认沿用 exporter 的 `json`）
+- 模板文件读取失败或模板语法错误时，程序报错并以非零码退出
+
+### 模板上下文变量
+
+渲染时提供以下变量：
+
+| 变量 | 类型 | 说明 |
+|---|---|---|
+| `base_name` | 字符串 | atlas 基础文件名（对应图片输出 `{base_name}.png`） |
+| `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
+
+`sprites` 中每个元素 `r` 的字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `r.name` | 字符串 | 精灵文件名（`removeFileExtension` 为 true 时去掉扩展名） |
+| `r.frame` | `{x, y, w, h}` | 精灵在 atlas 中的位置与尺寸 |
+| `r.rotated` | 布尔 | 是否旋转 90° |
+| `r.trimmed` | 布尔 | 是否裁剪过透明边 |
+| `r.sprite_source_size` | `{x, y, w, h}` | 裁剪后的内容在原图中的区域 |
+| `r.source_size` | `{w, h}` | 原图完整尺寸 |
+
+模板语法遵循 [MiniJinja](https://jinja.palletsprojects.com/en/stable/templates/) 官方文档。本工具额外注册了一个过滤器 `to_json`，用于把值编码为 JSON 字面量（字符串自动转义引号，写 JSON 的字符串值时务必使用，如 `{{ r.name | to_json }}`）。
+
+### 示例（Starling XML）
+
+完整示例见 `testunit/starling.tpl`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="{{ base_name }}.png">
+{% for r in sprites %}	<SubTexture name="{{ r.name }}" x="{{ r.frame.x }}" y="{{ r.frame.y }}" width="{{ r.frame.w }}" height="{{ r.frame.h }}"{% if r.rotated %} rotated="true"{% endif %}{% if r.trimmed %} frameX="{{ r.sprite_source_size.x }}" frameY="{{ r.sprite_source_size.y }}" frameWidth="{{ r.source_size.w }}" frameHeight="{{ r.source_size.h }}"{% endif %}/>
+{% endfor %}</TextureAtlas>
+```
+
+### 默认模板参考
+
+内置 JsonHash 模板：
+
+```jinja
+{
+  "name": "{{ base_name }}.png",
+  "sprites": [
+{% for r in sprites %}    {
+      "frame": {
+        "h": {{ r.frame.h }},
+        "w": {{ r.frame.w }},
+        "x": {{ r.frame.x }},
+        "y": {{ r.frame.y }}
+      },
+      "name": {{ r.name | to_json }},
+      "rotated": {{ r.rotated }},
+      "sourceSize": {
+        "h": {{ r.source_size.h }},
+        "w": {{ r.source_size.w }}
+      },
+      "spriteSourceSize": {
+        "h": {{ r.sprite_source_size.h }},
+        "w": {{ r.sprite_source_size.w }},
+        "x": {{ r.sprite_source_size.x }},
+        "y": {{ r.sprite_source_size.y }}
+      },
+      "trimmed": {{ r.trimmed }}
+    }{% if not loop.last %},{% endif %}
+{% endfor %}  ]
+}
+```
+
+内置 JsonArray 模板：
+
+```jinja
+[
+{% for r in sprites %}  {
+    "name": {{ r.name | to_json }},
+    "x": {{ r.frame.x }},
+    "y": {{ r.frame.y }},
+    "w": {{ r.frame.w }},
+    "h": {{ r.frame.h }},
+    "rotated": {{ r.rotated }},
+    "trimmed": {{ r.trimmed }},
+    "spriteSourceSize": {
+      "x": {{ r.sprite_source_size.x }},
+      "y": {{ r.sprite_source_size.y }},
+      "w": {{ r.sprite_source_size.w }},
+      "h": {{ r.sprite_source_size.h }}
+    },
+    "sourceSize": {
+      "w": {{ r.source_size.w }},
+      "h": {{ r.source_size.h }}
+    }
+  }{% if not loop.last %},{% endif %}
+{% endfor %}]
+```
 
 ## 项目结构
 

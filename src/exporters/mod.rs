@@ -121,17 +121,27 @@ pub struct ExportSize {
 }
 
 /// Start export — render the exporter template to a metadata string.
+///
+/// `template` optionally points to a custom MiniJinja template file that overrides
+/// the exporter's built-in template.
 pub fn start_exporter(
     type_name: &str,
     rects: &[RectData],
     base_name: &str,
     remove_file_extension: bool,
-) -> String {
+    template: Option<&str>,
+) -> Result<String, String> {
     let exporter = get_exporter_by_type(type_name)
         .unwrap_or_else(|| get_exporter_by_type("JsonHash").unwrap());
 
+    let template = match template {
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|e| format!("Error reading template '{}': {}", path, e))?,
+        None => exporter.template.to_string(),
+    };
+
     let export_rects: Vec<ExportRect> = prepare_data(rects, remove_file_extension);
-    render(exporter.template, &export_rects, base_name)
+    render(&template, &export_rects, base_name)
 }
 
 /// Strip the last `.ext` segment, mirroring the JS `split(".").pop()`.
@@ -174,13 +184,14 @@ fn prepare_data(rects: &[RectData], remove_file_extension: bool) -> Vec<ExportRe
 }
 
 /// Render a MiniJinja template with the exporter context.
-fn render(template: &str, rects: &[ExportRect], base_name: &str) -> String {
+fn render(template: &str, rects: &[ExportRect], base_name: &str) -> Result<String, String> {
     let sprites: Vec<serde_json::Value> = rects.iter().map(rect_to_json).collect();
     let ctx = serde_json::json!({ "base_name": base_name, "sprites": sprites });
 
     let mut env = minijinja::Environment::new();
     env.add_filter("to_json", to_json);
-    env.render_str(template, ctx).unwrap_or_default()
+    env.render_str(template, ctx)
+        .map_err(|e| format!("Template error: {}", e))
 }
 
 /// JSON-encode a scalar (used for names so quotes/escapes stay valid).

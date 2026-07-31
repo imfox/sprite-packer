@@ -14,7 +14,7 @@ impl FilesProcessor {
     pub fn process(
         sheets: &[Vec<RectData>],
         options: &PackOptions,
-    ) -> Vec<PackResult> {
+    ) -> Result<Vec<PackResult>, String> {
         let mut results = Vec::new();
         let suffix = &options.suffix;
         let multi_sheet = sheets.len() > 1;
@@ -65,7 +65,12 @@ impl FilesProcessor {
 
             // Generate file name
             let fname = if multi_sheet {
-                format!("{}{}{}", options.texture_name, suffix, sheet_idx)
+                format!(
+                    "{}{}{}",
+                    options.texture_name,
+                    suffix,
+                    options.sheet_start_index + sheet_idx as u32
+                )
             } else {
                 options.texture_name.clone()
             };
@@ -76,12 +81,18 @@ impl FilesProcessor {
                 sheet,
                 &fname,
                 options.remove_file_extension,
-            );
+                options.template.as_deref(),
+            )?;
 
-            // Determine file extension from exporter
-            let ext = exporters::get_exporter_by_type(&options.exporter)
-                .map(|e| e.file_ext.to_string())
-                .unwrap_or_else(|| "json".into());
+            // Determine file extension: custom template extension wins, else exporter's
+            let ext = options
+                .template_extension
+                .clone()
+                .unwrap_or_else(|| {
+                    exporters::get_exporter_by_type(&options.exporter)
+                        .map(|e| e.file_ext.to_string())
+                        .unwrap_or_else(|| "json".into())
+                });
 
             // Push atlas image
             results.push(PackResult {
@@ -96,6 +107,6 @@ impl FilesProcessor {
             });
         }
 
-        results
+        Ok(results)
     }
 }

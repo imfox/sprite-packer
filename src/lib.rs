@@ -62,6 +62,5 @@ fn normalize_name(path: &Path) -> String {
 /// Takes source images and options, returns output files.
 pub fn pack(sources: &[SourceImage], options: &PackOptions) -> Result<Vec<PackResult>, String> {
     let sheets = PackProcessor::pack(sources, options)?;
-    let results = FilesProcessor::process(&sheets, options);
-    Ok(results)
+    FilesProcessor::process(&sheets, options)
 }

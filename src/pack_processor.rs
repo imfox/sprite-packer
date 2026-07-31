@@ -16,6 +16,8 @@ enum Combo {
 pub struct PackOptions {
     pub texture_name: String,
     pub suffix: String,
+    /// Starting index for multi-sheet file names (e.g. `atlas-1`, `atlas-2`).
+    pub sheet_start_index: u32,
     pub width: u32,
     pub height: u32,
     pub power_of_two: bool,
@@ -34,6 +36,11 @@ pub struct PackOptions {
     pub filter: String,
     pub texture_format: String,
     pub remove_file_extension: bool,
+    /// Custom MiniJinja template file for metadata export. Overrides the exporter's
+    /// built-in template when set.
+    pub template: Option<String>,
+    /// Output file extension for the metadata when a custom template is used.
+    pub template_extension: Option<String>,
 }
 
 impl Default for PackOptions {
@@ -41,6 +48,7 @@ impl Default for PackOptions {
         Self {
             texture_name: "atlas".into(),
             suffix: "-".into(),
+            sheet_start_index: 0,
             width: 2048,
             height: 2048,
             power_of_two: false,
@@ -59,6 +67,8 @@ impl Default for PackOptions {
             filter: "none".into(),
             texture_format: "png".into(),
             remove_file_extension: false,
+            template: None,
+            template_extension: None,
         }
     }
 }

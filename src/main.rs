@@ -14,6 +14,8 @@ struct ConfigFile {
     #[serde(alias = "texture-name")]
     texture_name: Option<String>,
     suffix: Option<String>,
+    #[serde(alias = "sheet-start-index")]
+    sheet_start_index: Option<u32>,
     #[serde(alias = "power-of-two")]
     power_of_two: Option<bool>,
     #[serde(alias = "fixed-size")]
@@ -42,6 +44,9 @@ struct ConfigFile {
     texture_format: Option<String>,
     #[serde(alias = "remove-file-extension")]
     remove_file_extension: Option<bool>,
+    template: Option<String>,
+    #[serde(alias = "template-extension")]
+    template_extension: Option<String>,
 }
 
 #[derive(Parser)]
@@ -70,6 +75,10 @@ struct Cli {
     /// Base name for output files
     #[arg(long = "texture-name", default_value = "atlas")]
     texture_name: String,
+
+    /// Starting index for multi-sheet file names (default 0 → atlas-0, atlas-1)
+    #[arg(long = "sheet-start-index", default_value = "0")]
+    sheet_start_index: u32,
 
     /// Max atlas width per sheet
     #[arg(long = "width", default_value = "2048")]
@@ -126,6 +135,15 @@ struct Cli {
     /// Scale factor
     #[arg(long = "scale", default_value = "1.0")]
     scale: f32,
+
+    /// Custom MiniJinja template file for metadata export (overrides the exporter's
+    /// built-in template). See README for the context variables available.
+    #[arg(long = "template", value_name = "FILE")]
+    template: Option<String>,
+
+    /// Output file extension for the metadata when a custom template is used
+    #[arg(long = "template-extension", value_name = "EXT")]
+    template_extension: Option<String>,
 }
 
 /// Default config template written by --gen-config.
@@ -136,6 +154,7 @@ struct DefaultConfig {
     output: &'static str,
     texture_name: &'static str,
     suffix: &'static str,
+    sheet_start_index: u32,
     power_of_two: bool,
     fixed_size: bool,
     width: u32,
@@ -154,6 +173,8 @@ struct DefaultConfig {
     filter: &'static str,
     texture_format: &'static str,
     remove_file_extension: bool,
+    template: &'static str,
+    template_extension: &'static str,
 }
 
 /// Defaults mirror PackOptions::default() plus the input/output placeholders.
@@ -163,6 +184,7 @@ fn default_config() -> DefaultConfig {
         output: "",
         texture_name: "atlas",
         suffix: "-",
+        sheet_start_index: 0,
         power_of_two: false,
         fixed_size: false,
         width: 2048,
@@ -181,6 +203,8 @@ fn default_config() -> DefaultConfig {
         filter: "none",
         texture_format: "png",
         remove_file_extension: false,
+        template: "",
+        template_extension: "",
     }
 }
 
@@ -335,6 +359,11 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> PackOptio
             cfg.texture_name.clone().unwrap_or(d.texture_name)
         },
         suffix: cfg.suffix.clone().unwrap_or(d.suffix),
+        sheet_start_index: if cli_wins("sheet_start_index") {
+            cli.sheet_start_index
+        } else {
+            cfg.sheet_start_index.unwrap_or(d.sheet_start_index)
+        },
         width: if cli_wins("width") {
             cli.width
         } else {
@@ -408,6 +437,16 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> PackOptio
             cli.remove_file_extension
         } else {
             cfg.remove_file_extension.unwrap_or(d.remove_file_extension)
+        },
+        template: if cli_wins("template") {
+            cli.template.clone()
+        } else {
+            cfg.template.clone().or(d.template)
+        },
+        template_extension: if cli_wins("template_extension") {
+            cli.template_extension.clone()
+        } else {
+            cfg.template_extension.clone().or(d.template_extension)
         },
     }
 }
