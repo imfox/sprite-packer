@@ -176,14 +176,14 @@ TexturePacker 风格的哈希索引：
 
 默认情况下（`--multi-config` 开启），每张图集各生成一份配置（`atlas-0.json`、`atlas-1.json`…）。
 
-设置 `--multi-config false` 时，多张图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带一个 `image` 字段标明所属图集：
+设置 `--multi-config false` 时，多张图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带 `image`（所属图集文件名）与 `index`（图集序号，配合 `--sheet-start-index`）字段标明所属图集：
 
 ```json
 {
     "name": "atlas.png",
     "sprites": [
-        { "frame": { "x": 0, "y": 0, "w": 100, "h": 100 }, "image": "atlas-0.png", "name": "35.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 299, "y": 266, "w": 31, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } },
-        { "frame": { "x": 0, "y": 100, "w": 80, "h": 80 }, "image": "atlas-1.png", "name": "204.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 200, "y": 209, "w": 30, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } }
+        { "frame": { "x": 0, "y": 0, "w": 100, "h": 100 }, "image": "atlas-0.png", "index": 0, "name": "35.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 299, "y": 266, "w": 31, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } },
+        { "frame": { "x": 0, "y": 100, "w": 80, "h": 80 }, "image": "atlas-1.png", "index": 1, "name": "204.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 200, "y": 209, "w": 30, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } }
     ]
 }
 ```
@@ -209,6 +209,7 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 | 变量 | 类型 | 说明 |
 |---|---|---|
 | `base_name` | 字符串 | atlas 基础文件名（对应图片输出 `{base_name}.png`） |
+| `multi_config` | 布尔 | 是否每个图集各生成一份配置（`--multi-config`，合并模式下为 `false`） |
 | `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
 
 `sprites` 中每个元素 `r` 的字段：
@@ -216,7 +217,8 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `r.name` | 字符串 | 精灵文件名（`removeFileExtension` 为 true 时去掉扩展名） |
-| `r.image` | 字符串 | 所属图集文件名（仅 `--multi-config false` 合并模式时存在） |
+| `r.image` | 字符串 | 所属图集文件名（如 `atlas-0.png`） |
+| `r.index` | 整数 | 所属图集序号（如 `0` 对应 `atlas-0.png`，随 `--sheet-start-index` 偏移） |
 | `r.frame` | `{x, y, w, h}` | 精灵在 atlas 中的位置与尺寸 |
 | `r.rotated` | 布尔 | 是否旋转 90° |
 | `r.trimmed` | 布尔 | 是否裁剪过透明边 |
@@ -238,7 +240,7 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 
 ### 默认模板参考
 
-内置 JsonHash 模板：
+内置 JsonHash 模板（`{% if not multi_config %}` 段仅在合并模式下输出 `image` 与 `index` 字段，每个图集单独配置时保持纯净）：
 
 ```jinja
 {
@@ -251,7 +253,9 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
         "x": {{ r.frame.x }},
         "y": {{ r.frame.y }}
       },
-      "name": {{ r.name | to_json }},
+{% if not multi_config %}      "image": {{ r.image | to_json }},
+      "index": {{ r.index }},
+{% endif %}      "name": {{ r.name | to_json }},
       "rotated": {{ r.rotated }},
       "sourceSize": {
         "h": {{ r.source_size.h }},
@@ -275,7 +279,9 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 [
 {% for r in sprites %}  {
     "name": {{ r.name | to_json }},
-    "x": {{ r.frame.x }},
+{% if not multi_config %}    "image": {{ r.image | to_json }},
+    "index": {{ r.index }},
+{% endif %}    "x": {{ r.frame.x }},
     "y": {{ r.frame.y }},
     "w": {{ r.frame.w }},
     "h": {{ r.frame.h }},

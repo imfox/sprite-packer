@@ -21,7 +21,7 @@ impl FilesProcessor {
         // Multi-sheet configs can be merged into a single metadata file
         let merged = multi_sheet && !options.multi_config;
 
-        let mut groups: Vec<(String, &[RectData])> = Vec::new();
+        let mut groups: Vec<(u32, String, &[RectData])> = Vec::new();
 
         for (sheet_idx, sheet) in sheets.iter().enumerate() {
             // Build render items
@@ -67,32 +67,34 @@ impl FilesProcessor {
             let _ = img.write_to(&mut png_buf, image::ImageFormat::Png);
             let image_data = png_buf.into_inner();
 
+            // Sheet index used in the file name and stamped on each sprite
+            let index = options.sheet_start_index + sheet_idx as u32;
+
             // Generate file name
             let fname = if multi_sheet {
-                format!(
-                    "{}{}{}",
-                    options.texture_name,
-                    suffix,
-                    options.sheet_start_index + sheet_idx as u32
-                )
+                format!("{}{}{}", options.texture_name, suffix, index)
             } else {
                 options.texture_name.clone()
             };
 
+            let image_name = format!("{}.png", fname);
+
             // Push atlas image
             results.push(PackResult {
-                name: format!("{}.png", fname),
+                name: image_name.clone(),
                 buffer: image_data,
             });
 
             if merged {
-                groups.push((format!("{}.png", fname), sheet));
+                groups.push((index, image_name, sheet));
             } else {
                 // Push per-sheet metadata
                 let metadata = exporters::start_exporter(
                     &options.exporter,
                     sheet,
                     &fname,
+                    index,
+                    &image_name,
                     options.remove_file_extension,
                     options.template.as_deref(),
                 )?;
