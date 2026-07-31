@@ -15,6 +15,20 @@ pub struct ExporterDescriptor {
     pub template: &'static str,
 }
 
+/// Generation info exposed to the template context as `exports`.
+#[derive(Debug, Clone)]
+pub struct ExportInfo {
+    /// Whether this export merges all sheets into one config (true) or produces one
+    /// config per sheet (false).
+    pub single_config: bool,
+    /// Total number of atlas sheets produced.
+    pub image_count: usize,
+    /// Index of the sheet this config describes (merged exports report the first sheet).
+    pub cur_image_index: u32,
+    /// Image name of the sheet this config describes (usable with `image_dict`).
+    pub cur_image: String,
+}
+
 /// Metadata for one rendered atlas image, exposed to the template context as
 /// `images` (one entry per atlas, in sheet order).
 #[derive(Debug, Clone)]
@@ -149,8 +163,8 @@ pub struct ExportSize {
 /// `template` optionally points to a custom MiniJinja template file that overrides
 /// the exporter's built-in template. `sheet_index` and `image` identify the atlas
 /// sheet these rects belong to. Per-sheet export always uses exports.single_config=false
-/// so the built-in template matches the reference output. `image_count` is the total
-/// number of atlas sheets produced. `images` and `options` are exposed to the
+/// so the built-in template matches the reference output. `info.image_count` is the
+/// total number of atlas sheets produced. `images` and `options` are exposed to the
 /// template context. `vars` are extra key-value pairs exposed as `vars.<key>`.
 pub fn start_exporter(
     type_name: &str,
@@ -166,22 +180,20 @@ pub fn start_exporter(
 ) -> Result<String, String> {
     let template = resolve_template(type_name, template)?;
     let prepared = prepare_data(rects, remove_file_extension, sheet_index, image, false, vars);
-    render(
-        &template,
-        &prepared.rects,
-        prepared.single_config,
+    let info = ExportInfo {
+        single_config: prepared.single_config,
         image_count,
-        &prepared.vars,
-        images,
-        options,
-    )
+        cur_image_index: sheet_index,
+        cur_image: image.to_string(),
+    };
+    render(&template, &prepared.rects, &info, &prepared.vars, images, options)
 }
 
 /// Export a single merged metadata file covering multiple sheets. Each sprite is
 /// stamped with the `image` (atlas file name) and `index` (atlas sheet index) of the
 /// sheet it belongs to. `groups` holds (sheet_index, image_name, sprites) per sheet.
-/// `image_count` is the total number of atlas sheets produced. `images` and `options`
-/// are exposed to the template context.
+/// `info.image_count` is the total number of atlas sheets produced. `images` and
+/// `options` are exposed to the template context.
 pub fn start_exporter_merged(
     type_name: &str,
     groups: &[(u32, String, &[RectData])],
@@ -201,7 +213,17 @@ pub fn start_exporter_merged(
         })
         .collect();
 
-    render(&template, &export_rects, true, image_count, vars, images, options)
+    let (cur_image_index, cur_image) = groups
+        .first()
+        .map(|g| (g.0, g.1.clone()))
+        .unwrap_or((0, String::new()));
+    let info = ExportInfo {
+        single_config: true,
+        image_count,
+        cur_image_index,
+        cur_image,
+    };
+    render(&template, &export_rects, &info, vars, images, options)
 }
 
 /// Resolve the template to render: a custom template file when given, otherwise the
@@ -281,8 +303,7 @@ fn prepare_data(
 fn render(
     template: &str,
     rects: &[ExportRect],
-    single_config: bool,
-    image_count: usize,
+    info: &ExportInfo,
     vars: &Vars,
     images: &[AtlasInfo],
     options: &PackOptions,
@@ -299,11 +320,11 @@ fn render(
         .iter()
         .map(|i| (i.name.clone(), atlas_info(i)))
         .collect();
-    // `exports` carries generation info: whether this is a merged export and how
-    // many atlas sheets were produced.
     let exports = serde_json::json!({
-        "single_config": single_config,
-        "image_count": image_count,
+        "single_config": info.single_config,
+        "image_count": info.image_count,
+        "cur_image_index": info.cur_image_index,
+        "cur_image": info.cur_image,
     });
     let ctx = serde_json::json!({
         "exports": exports,
@@ -365,6 +386,15 @@ fn rect_to_json(r: &ExportRect) -> serde_json::Value {
 mod tests {
     use super::*;
 
+    fn sample_info(single_config: bool, image_count: usize, cur_image_index: u32, cur_image: &str) -> ExportInfo {
+        ExportInfo {
+            single_config,
+            image_count,
+            cur_image_index,
+            cur_image: cur_image.into(),
+        }
+    }
+
     fn sample_rects() -> Vec<ExportRect> {
         vec![
             ExportRect {
@@ -394,7 +424,7 @@ mod tests {
     fn per_sheet_output_has_no_image_or_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_HASH_TEMPLATE, &rects, false, 1, &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(JSON_HASH_TEMPLATE, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
         // The config name comes from options.texture_name, and per-sheet output has no
         // image/index stamping.
         assert!(out.contains("\"name\": \"atlas.png\""));
@@ -406,7 +436,7 @@ mod tests {
     fn merged_hash_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_HASH_TEMPLATE, &rects, true, 1, &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(JSON_HASH_TEMPLATE, &rects, &sample_info(true, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         assert!(out.contains("\"image\": \"atlas-2.png\""));
@@ -419,7 +449,7 @@ mod tests {
     fn merged_array_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_ARRAY_TEMPLATE, &rects, true, 1, &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(JSON_ARRAY_TEMPLATE, &rects, &sample_info(true, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         // JsonArray mirrors the struct order: name, image, index
@@ -436,7 +466,7 @@ mod tests {
         vars.insert("author".into(), serde_json::json!("me"));
         vars.insert("version".into(), serde_json::json!(2));
         let tpl = "author={{ vars.author | to_json }} version={{ vars.version }}";
-        let out = render(tpl, &rects, false, 1, &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
         assert_eq!(out, "author=\"me\" version=2");
     }
 
@@ -461,7 +491,7 @@ mod tests {
 {% for r in sprites %}    "{{ r.name | without_extname }}": { "source": {{ r.index }} }{% if not loop.last %},{% endif %}
 {% endfor %}  } }
 }"#;
-        let out = render(tpl, &rects, true, 2, &vars, &images, &opts).unwrap();
+        let out = render(tpl, &rects, &sample_info(true, 2, 0, ""), &vars, &images, &opts).unwrap();
         assert!(out.contains("\"files\": [\"atlas-0.png\",\"atlas-1.png\"]"));
         assert!(out.contains("\"ghosthand.img\""));
         assert!(out.contains("\"a\": { \"source\": 1 }"));
@@ -470,8 +500,7 @@ mod tests {
         let out2 = render(
             "{% for r in sprites %}{{ r.image }} {{ r.index }};{% endfor %}",
             &rects,
-            false,
-            1,
+            &sample_info(false, 1, 0, ""),
             &vars,
             &[],
             &PackOptions::default(),
@@ -491,7 +520,7 @@ mod tests {
             AtlasInfo { name: "atlas-2.png".into(), index: 2, width: 128, height: 32 },
         ];
         let tpl = "{% for r in sprites %}{{ r.image }}:{{ image_dict[r.image].width }}x{{ image_dict[r.image].height }};{% endfor %}";
-        let out = render(tpl, &rects, true, 2, &vars, &images, &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(true, 2, 0, ""), &vars, &images, &PackOptions::default()).unwrap();
         assert_eq!(out, "atlas-1.png:64x64;atlas-2.png:128x32;");
     }
 
@@ -501,7 +530,7 @@ mod tests {
         let mut vars = Vars::new();
         vars.insert("win_path".into(), serde_json::json!("dir\\file.png"));
         let tpl = "{{ '/a/b/c' | basename }}|{{ 'c' | basename }}|{{ vars.win_path | basename }}";
-        let out = render(tpl, &rects, false, 1, &vars, &[], &PackOptions::default()).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &PackOptions::default()).unwrap();
         assert_eq!(out, "c|c|file.png");
     }
 
@@ -517,20 +546,25 @@ mod tests {
             ..Default::default()
         };
         let tpl = "{{ options.width }}x{{ options.height }} pad={{ options.padding }} single={{ options.single_config }} name={{ options.texture_name }}";
-        let out = render(tpl, &rects, false, 1, &vars, &[], &opts).unwrap();
+        let out = render(tpl, &rects, &sample_info(false, 1, 0, ""), &vars, &[], &opts).unwrap();
         assert_eq!(out, "1024x512 pad=2 single=true name=atlas");
     }
 
     #[test]
-    fn exports_object_has_single_config_and_image_count() {
+    fn exports_object_has_single_config_image_count_and_cur_image() {
         let rects = sample_rects();
         let vars = Vars::new();
+        let images = vec![
+            AtlasInfo { name: "atlas-0.png".into(), index: 0, width: 64, height: 64 },
+            AtlasInfo { name: "atlas-1.png".into(), index: 1, width: 128, height: 32 },
+            AtlasInfo { name: "atlas-2.png".into(), index: 2, width: 256, height: 16 },
+        ];
         // Merged export over 3 sheets: exports.single_config=true, image_count=3.
-        let tpl = "sc={{ exports.single_config }} n={{ exports.image_count }}";
-        let out = render(tpl, &rects, true, 3, &vars, &[], &PackOptions::default()).unwrap();
-        assert_eq!(out, "sc=true n=3");
+        let tpl = "sc={{ exports.single_config }} n={{ exports.image_count }} cur={{ exports.cur_image_index }} w={{ image_dict[exports.cur_image].width }}";
+        let out = render(tpl, &rects, &sample_info(true, 3, 0, "atlas-0.png"), &vars, &images, &PackOptions::default()).unwrap();
+        assert_eq!(out, "sc=true n=3 cur=0 w=64");
         // Per-sheet export over a single sheet.
-        let out = render(tpl, &rects, false, 1, &vars, &[], &PackOptions::default()).unwrap();
-        assert_eq!(out, "sc=false n=1");
+        let out = render(tpl, &rects, &sample_info(false, 1, 2, "atlas-2.png"), &vars, &images, &PackOptions::default()).unwrap();
+        assert_eq!(out, "sc=false n=1 cur=2 w=256");
     }
 }

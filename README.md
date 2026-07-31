@@ -242,6 +242,8 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 |---|---|---|
 | `exports.single_config` | 布尔 | 本次导出是否为合并模式：`true` 时所有图集合并为一份配置（每个精灵带 `image`、`index` 字段），`false` 时每个图集各生成一份配置 |
 | `exports.image_count` | 整数 | 生成的图集（sheet）数量 |
+| `exports.cur_image_index` | 整数 | 当前这份配置所属图集的序号（合并模式下为第一张图集的序号） |
+| `exports.cur_image` | 字符串 | 当前这份配置所属图集的文件名（如 `atlas-0.png`），可用 `image_dict[exports.cur_image]` 取该图集的信息 |
 
 `sprites` 中每个元素 `r` 的字段：
 
