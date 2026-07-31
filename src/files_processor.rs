@@ -1,0 +1,101 @@
+use image::DynamicImage;
+
+use crate::exporters;
+use crate::pack_processor::{PackOptions, PackResult, RectData};
+use crate::utils::{TextureRenderer, RenderItem, RenderOptions};
+use crate::filters;
+
+/// Generates output files from packed sprite sheets.
+/// Mirrors FilesProcessor.js from free-tex-packer-core.
+pub struct FilesProcessor;
+
+impl FilesProcessor {
+    /// Process packed sheet data — render textures and export metadata.
+    pub fn process(
+        sheets: &[Vec<RectData>],
+        options: &PackOptions,
+    ) -> Vec<PackResult> {
+        let mut results = Vec::new();
+        let suffix = &options.suffix;
+        let multi_sheet = sheets.len() > 1;
+
+        for (sheet_idx, sheet) in sheets.iter().enumerate() {
+            // Build render items
+            let mut render_items = Vec::new();
+            for rd in sheet {
+                render_items.push(RenderItem {
+                    image: rd.image.clone(),
+                    dx: rd.frame.x,
+                    dy: rd.frame.y,
+                    sx: rd.sprite_source_size.x,
+                    sy: rd.sprite_source_size.y,
+                    sw: rd.sprite_source_size.width,
+                    sh: rd.sprite_source_size.height,
+                    ow: rd.source_size.0,
+                    oh: rd.source_size.1,
+                    skip_render: rd.skip_render,
+                    rotated: rd.rotated,
+                    extrude: options.extrude as i32,
+                });
+            }
+
+            // Render atlas image
+            let render_opts = RenderOptions {
+                fixed_size: options.fixed_size,
+                width: options.width,
+                height: options.height,
+                power_of_two: options.power_of_two,
+                padding: options.padding,
+                extrude: options.extrude,
+                scale: options.scale,
+            };
+
+            let mut render_result = TextureRenderer::render(&render_items, &render_opts);
+
+            // Apply filter
+            if let Some(filter) = filters::get_filter_by_type(&options.filter) {
+                filter.apply(&mut render_result.image);
+            }
+
+            // Encode PNG
+            let mut png_buf = std::io::Cursor::new(Vec::new());
+            let img = DynamicImage::ImageRgba8(render_result.image);
+            let _ = img.write_to(&mut png_buf, image::ImageFormat::Png);
+            let image_data = png_buf.into_inner();
+
+            // Generate file name
+            let fname = if multi_sheet {
+                format!("{}{}{}", options.texture_name, suffix, sheet_idx)
+            } else {
+                options.texture_name.clone()
+            };
+
+            // Generate metadata
+            let metadata = exporters::start_exporter(
+                &options.exporter,
+                sheet,
+                &fname,
+                options.remove_file_extension,
+            );
+
+            // Determine file extension from exporter
+            let ext = exporters::get_exporter_by_type(&options.exporter)
+                .map(|e| e.file_ext.to_string())
+                .unwrap_or_else(|| "json".into());
+
+            // Push atlas image
+            results.push(PackResult {
+                name: format!("{}.png", fname),
+                buffer: image_data,
+            });
+
+            // Push metadata
+            results.push(PackResult {
+                name: format!("{}.{}", fname, ext),
+                buffer: metadata.into_bytes(),
+            });
+        }
+
+        results
+    }
+}
