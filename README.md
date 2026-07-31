@@ -233,8 +233,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 | `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
 | `images` | 数组 | 每张图集一个对象，按 sheet 顺序排列：`name`（图集文件名，如 `atlas-0.png`）、`index`（图集序号）、`width`、`height`（渲染后图集的宽高） |
 | `image_dict` | 对象 | 以图集文件名为键的映射，值为图集信息对象（`name`、`index`、`width`、`height`）。遍历 sprites 时可用 `image_dict[r.image]` 取当前精灵所属图集的信息。按图集名访问而不是按 `index` 数组下标，因为 `index` 可能不从 0 开始（受 `--sheet-start-index` 影响） |
-| `input_dir` | 字符串 | 输入目录的基础名（如输入 `images/back.img` 则为 `back.img`），常用来做 `frames` 之类的分组键 |
-| `options` | 对象 | 本次打包的全部生成参数（`PackOptions`，snake_case 键），如 `options.single_config`、`options.width`、`options.padding`、`options.allow_rotation`。注意其中的 `options.single_config` 是用户传入的合并选项；顶层 `single_config` 表示本次导出是否为合并模式 |
+| `options` | 对象 | 本次打包的全部生成参数（`PackOptions`，snake_case 键），如 `options.single_config`、`options.width`、`options.padding`、`options.allow_rotation`。其中 `options.input` 是输入目录路径，可用 `| basename` 取出最后一段。注意其中的 `options.single_config` 是用户传入的合并选项；顶层 `single_config` 表示本次导出是否为合并模式 |
 | `vars` | 对象 | `--vars` 或配置 `vars` 传入的额外键值对，`{{ vars.<key> }}` 访问（值按 JSON 解析时可为数字/布尔/对象/数组） |
 
 `sprites` 中每个元素 `r` 的字段：

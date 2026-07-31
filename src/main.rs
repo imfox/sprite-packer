@@ -289,11 +289,8 @@ fn main() {
         }
     };
 
-    // Base name of the input directory, exposed to the template context as `input_dir`
-    options.input_dir = std::path::Path::new(&input)
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    // Input directory path, exposed to the template context as `options.input`
+    options.input = input.clone();
 
     // 1. Scan directory
     if !cli.quiet {
@@ -486,8 +483,8 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> Result<Pa
             cfg.template_extension.clone().or(d.template_extension)
         },
         vars: merge_vars(cfg, cli)?,
-        // Filled in from the input path's base name after the options are built.
-        input_dir: String::new(),
+        // Filled in from the resolved input path in main().
+        input: String::new(),
     })
 }
 

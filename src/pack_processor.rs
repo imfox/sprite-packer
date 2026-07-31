@@ -48,9 +48,9 @@ pub struct PackOptions {
     pub template_extension: Option<String>,
     /// Extra key-value variables exposed to the template context as `vars.<key>`.
     pub vars: std::collections::HashMap<String, serde_json::Value>,
-    /// Base name of the input directory, exposed to the template context as
-    /// `input_dir` (e.g. the `frames.<input_dir>` key in the Artbook format).
-    pub input_dir: String,
+    /// Input directory path, exposed to the template context as `options.input`
+    /// (use the `basename` filter to get its last segment).
+    pub input: String,
 }
 
 impl Default for PackOptions {
@@ -81,7 +81,7 @@ impl Default for PackOptions {
             template: None,
             template_extension: None,
             vars: std::collections::HashMap::new(),
-            input_dir: "".into(),
+            input: "".into(),
         }
     }
 }
