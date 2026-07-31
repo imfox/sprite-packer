@@ -8,7 +8,61 @@ pub struct ExporterDescriptor {
     pub file_ext: &'static str,
     pub allow_trim: bool,
     pub allow_rotation: bool,
+    /// MiniJinja template that renders the metadata output.
+    pub template: &'static str,
 }
+
+/// JsonHash template. Key order is alphabetical (matches the old BTreeMap-built output).
+const JSON_HASH_TEMPLATE: &str = r#"{
+  "name": "{{ base_name }}.png",
+  "sprites": [
+{% for r in sprites %}    {
+      "frame": {
+        "h": {{ r.frame.h }},
+        "w": {{ r.frame.w }},
+        "x": {{ r.frame.x }},
+        "y": {{ r.frame.y }}
+      },
+      "name": {{ r.name | to_json }},
+      "rotated": {{ r.rotated }},
+      "sourceSize": {
+        "h": {{ r.source_size.h }},
+        "w": {{ r.source_size.w }}
+      },
+      "spriteSourceSize": {
+        "h": {{ r.sprite_source_size.h }},
+        "w": {{ r.sprite_source_size.w }},
+        "x": {{ r.sprite_source_size.x }},
+        "y": {{ r.sprite_source_size.y }}
+      },
+      "trimmed": {{ r.trimmed }}
+    }{% if not loop.last %},{% endif %}
+{% endfor %}  ]
+}"#;
+
+/// JsonArray template. Field order mirrors the derived Serialize layout, with the
+/// flattened frame inlined as x/y/w/h.
+const JSON_ARRAY_TEMPLATE: &str = r#"[
+{% for r in sprites %}  {
+    "name": {{ r.name | to_json }},
+    "x": {{ r.frame.x }},
+    "y": {{ r.frame.y }},
+    "w": {{ r.frame.w }},
+    "h": {{ r.frame.h }},
+    "rotated": {{ r.rotated }},
+    "trimmed": {{ r.trimmed }},
+    "spriteSourceSize": {
+      "x": {{ r.sprite_source_size.x }},
+      "y": {{ r.sprite_source_size.y }},
+      "w": {{ r.sprite_source_size.w }},
+      "h": {{ r.sprite_source_size.h }}
+    },
+    "sourceSize": {
+      "w": {{ r.source_size.w }},
+      "h": {{ r.source_size.h }}
+    }
+  }{% if not loop.last %},{% endif %}
+{% endfor %}]"#;
 
 /// Built-in exporters list.
 pub fn list_exporters() -> Vec<ExporterDescriptor> {
@@ -18,12 +72,14 @@ pub fn list_exporters() -> Vec<ExporterDescriptor> {
             file_ext: "json",
             allow_trim: true,
             allow_rotation: true,
+            template: JSON_HASH_TEMPLATE,
         },
         ExporterDescriptor {
             type_name: "JsonArray",
             file_ext: "json",
             allow_trim: true,
             allow_rotation: true,
+            template: JSON_ARRAY_TEMPLATE,
         },
     ]
 }
@@ -64,7 +120,7 @@ pub struct ExportSize {
     pub h: i32,
 }
 
-/// Start export — generate metadata string.
+/// Start export — render the exporter template to a metadata string.
 pub fn start_exporter(
     type_name: &str,
     rects: &[RectData],
@@ -75,11 +131,7 @@ pub fn start_exporter(
         .unwrap_or_else(|| get_exporter_by_type("JsonHash").unwrap());
 
     let export_rects: Vec<ExportRect> = prepare_data(rects, remove_file_extension);
-
-    match exporter.type_name {
-        "JsonArray" => export_json_array(&export_rects, base_name),
-        _ => export_json_hash(&export_rects, base_name),
-    }
+    render(exporter.template, &export_rects, base_name)
 }
 
 /// Strip the last `.ext` segment, mirroring the JS `split(".").pop()`.
@@ -121,42 +173,33 @@ fn prepare_data(rects: &[RectData], remove_file_extension: bool) -> Vec<ExportRe
         .collect()
 }
 
-/// JsonHash format: `{ "filename.png": { frame: {...}, ... }, ... }`
-fn export_json_hash(rects: &[ExportRect], base_name: &str) -> String {
-    let mut map = serde_json::Map::new();
-    map.insert(
-        "name".to_string(),
-        serde_json::Value::String(format!("{}.png", base_name)),
-    );
+/// Render a MiniJinja template with the exporter context.
+fn render(template: &str, rects: &[ExportRect], base_name: &str) -> String {
+    let sprites: Vec<serde_json::Value> = rects.iter().map(rect_to_json).collect();
+    let ctx = serde_json::json!({ "base_name": base_name, "sprites": sprites });
 
-    let rects_val: Vec<serde_json::Value> = rects
-        .iter()
-        .map(|r| {
-            let mut rect_map = serde_json::Map::new();
-            rect_map.insert("name".into(), serde_json::Value::String(r.name.clone()));
-            rect_map.insert(
-                "frame".into(),
-                serde_json::to_value(&r.frame).unwrap_or_default(),
-            );
-            rect_map.insert("rotated".into(), serde_json::Value::Bool(r.rotated));
-            rect_map.insert("trimmed".into(), serde_json::Value::Bool(r.trimmed));
-            rect_map.insert(
-                "spriteSourceSize".into(),
-                serde_json::to_value(&r.sprite_source_size).unwrap_or_default(),
-            );
-            rect_map.insert(
-                "sourceSize".into(),
-                serde_json::to_value(&r.source_size).unwrap_or_default(),
-            );
-            serde_json::Value::Object(rect_map)
-        })
-        .collect();
-
-    map.insert("sprites".to_string(), serde_json::Value::Array(rects_val));
-    serde_json::to_string_pretty(&serde_json::Value::Object(map)).unwrap_or_default()
+    let mut env = minijinja::Environment::new();
+    env.add_filter("to_json", to_json);
+    env.render_str(template, ctx).unwrap_or_default()
 }
 
-/// JsonArray format: `[ { name, frame, ... }, ... ]`
-fn export_json_array(rects: &[ExportRect], _base_name: &str) -> String {
-    serde_json::to_string_pretty(rects).unwrap_or_default()
+/// JSON-encode a scalar (used for names so quotes/escapes stay valid).
+fn to_json(value: &minijinja::Value) -> String {
+    serde_json::to_string(value).unwrap_or_default()
+}
+
+fn rect_to_json(r: &ExportRect) -> serde_json::Value {
+    serde_json::json!({
+        "frame": { "x": r.frame.x, "y": r.frame.y, "w": r.frame.w, "h": r.frame.h },
+        "name": r.name,
+        "rotated": r.rotated,
+        "source_size": { "w": r.source_size.w, "h": r.source_size.h },
+        "sprite_source_size": {
+            "x": r.sprite_source_size.x,
+            "y": r.sprite_source_size.y,
+            "w": r.sprite_source_size.w,
+            "h": r.sprite_source_size.h
+        },
+        "trimmed": r.trimmed,
+    })
 }
