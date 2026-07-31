@@ -54,6 +54,7 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | `-q, --quiet` | 静默模式，不打印任何信息（错误仍输出到 stderr） | 关闭 |
 | `--texture-name <NAME>` | 输出文件基础名 | `atlas` |
 | `--sheet-start-index <N>` | 多 sheet 文件名的起始序号（如 `atlas-0`、`atlas-1`） | `0` |
+| `--multi-config [true/false]` | 多图集时每个图集各生成一份配置；`false` 时合并为一个配置（每个精灵带 `image` 字段） | `true` |
 | `--width <N>` | 单张 atlas 最大宽度 | `2048` |
 | `--height <N>` | 单张 atlas 最大高度 | `2048` |
 | `--power-of-two` | 强制 Power-of-Two 尺寸 | `false` |
@@ -122,6 +123,7 @@ sprite-packer --gen-config default.json
     "textureName": "atlas",
     "suffix": "-",
     "sheetStartIndex": 0,
+    "multiConfig": true,
     "powerOfTwo": false,
     "fixedSize": false,
     "width": 2048,
@@ -170,6 +172,24 @@ TexturePacker 风格的哈希索引：
 
 与 JsonHash 相同的数据，但输出为数组形式（TexturePacker `--texture-format JSONArray` 风格）。
 
+### 多图集配置
+
+默认情况下（`--multi-config` 开启），每张图集各生成一份配置（`atlas-0.json`、`atlas-1.json`…）。
+
+设置 `--multi-config false` 时，多张图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带一个 `image` 字段标明所属图集：
+
+```json
+{
+    "name": "atlas.png",
+    "sprites": [
+        { "frame": { "x": 0, "y": 0, "w": 100, "h": 100 }, "image": "atlas-0.png", "name": "35.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 299, "y": 266, "w": 31, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } },
+        { "frame": { "x": 0, "y": 100, "w": 80, "h": 80 }, "image": "atlas-1.png", "name": "204.png", "rotated": false, "trimmed": true, "spriteSourceSize": { "x": 200, "y": 209, "w": 30, "h": 28 }, "sourceSize": { "w": 500, "h": 500 } }
+    ]
+}
+```
+
+单图集时该参数无影响（本来就只有一个配置）。
+
 ## 自定义模板（MiniJinja）
 
 内置的 JsonHash / JsonArray 使用 [MiniJinja](https://github.com/mitsuhiko/minijinja)（Jinja2 语法）模板生成。你可以传入自己的模板文件，把元数据输出成任意格式（XML、Unity、自定义文本等）。
@@ -196,6 +216,7 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `r.name` | 字符串 | 精灵文件名（`removeFileExtension` 为 true 时去掉扩展名） |
+| `r.image` | 字符串 | 所属图集文件名（仅 `--multi-config false` 合并模式时存在） |
 | `r.frame` | `{x, y, w, h}` | 精灵在 atlas 中的位置与尺寸 |
 | `r.rotated` | 布尔 | 是否旋转 90° |
 | `r.trimmed` | 布尔 | 是否裁剪过透明边 |

@@ -18,6 +18,10 @@ impl FilesProcessor {
         let mut results = Vec::new();
         let suffix = &options.suffix;
         let multi_sheet = sheets.len() > 1;
+        // Multi-sheet configs can be merged into a single metadata file
+        let merged = multi_sheet && !options.multi_config;
+
+        let mut groups: Vec<(String, &[RectData])> = Vec::new();
 
         for (sheet_idx, sheet) in sheets.iter().enumerate() {
             // Build render items
@@ -75,38 +79,57 @@ impl FilesProcessor {
                 options.texture_name.clone()
             };
 
-            // Generate metadata
-            let metadata = exporters::start_exporter(
-                &options.exporter,
-                sheet,
-                &fname,
-                options.remove_file_extension,
-                options.template.as_deref(),
-            )?;
-
-            // Determine file extension: custom template extension wins, else exporter's
-            let ext = options
-                .template_extension
-                .clone()
-                .unwrap_or_else(|| {
-                    exporters::get_exporter_by_type(&options.exporter)
-                        .map(|e| e.file_ext.to_string())
-                        .unwrap_or_else(|| "json".into())
-                });
-
             // Push atlas image
             results.push(PackResult {
                 name: format!("{}.png", fname),
                 buffer: image_data,
             });
 
-            // Push metadata
+            if merged {
+                groups.push((format!("{}.png", fname), sheet));
+            } else {
+                // Push per-sheet metadata
+                let metadata = exporters::start_exporter(
+                    &options.exporter,
+                    sheet,
+                    &fname,
+                    options.remove_file_extension,
+                    options.template.as_deref(),
+                )?;
+                results.push(PackResult {
+                    name: format!("{}.{}", fname, metadata_ext(options)),
+                    buffer: metadata.into_bytes(),
+                });
+            }
+        }
+
+        // Merged multi-sheet metadata: one file covering all sheets
+        if merged {
+            let metadata = exporters::start_exporter_merged(
+                &options.exporter,
+                &groups,
+                &options.texture_name,
+                options.remove_file_extension,
+                options.template.as_deref(),
+            )?;
             results.push(PackResult {
-                name: format!("{}.{}", fname, ext),
+                name: format!("{}.{}", options.texture_name, metadata_ext(options)),
                 buffer: metadata.into_bytes(),
             });
         }
 
         Ok(results)
     }
+}
+
+/// Metadata file extension: custom template extension wins, else exporter's.
+fn metadata_ext(options: &PackOptions) -> String {
+    options
+        .template_extension
+        .clone()
+        .unwrap_or_else(|| {
+            exporters::get_exporter_by_type(&options.exporter)
+                .map(|e| e.file_ext.to_string())
+                .unwrap_or_else(|| "json".into())
+        })
 }

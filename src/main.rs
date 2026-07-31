@@ -16,6 +16,8 @@ struct ConfigFile {
     suffix: Option<String>,
     #[serde(alias = "sheet-start-index")]
     sheet_start_index: Option<u32>,
+    #[serde(alias = "multi-config")]
+    multi_config: Option<bool>,
     #[serde(alias = "power-of-two")]
     power_of_two: Option<bool>,
     #[serde(alias = "fixed-size")]
@@ -79,6 +81,11 @@ struct Cli {
     /// Starting index for multi-sheet file names (default 0 → atlas-0, atlas-1)
     #[arg(long = "sheet-start-index", default_value = "0")]
     sheet_start_index: u32,
+
+    /// One metadata file per sheet (--multi-config or --multi-config false).
+    /// Set to false to merge all sheets into a single metadata file.
+    #[arg(long = "multi-config", num_args = 0..=1, default_missing_value = "true", default_value_t = true)]
+    multi_config: bool,
 
     /// Max atlas width per sheet
     #[arg(long = "width", default_value = "2048")]
@@ -155,6 +162,7 @@ struct DefaultConfig {
     texture_name: &'static str,
     suffix: &'static str,
     sheet_start_index: u32,
+    multi_config: bool,
     power_of_two: bool,
     fixed_size: bool,
     width: u32,
@@ -185,6 +193,7 @@ fn default_config() -> DefaultConfig {
         texture_name: "atlas",
         suffix: "-",
         sheet_start_index: 0,
+        multi_config: true,
         power_of_two: false,
         fixed_size: false,
         width: 2048,
@@ -363,6 +372,11 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> PackOptio
             cli.sheet_start_index
         } else {
             cfg.sheet_start_index.unwrap_or(d.sheet_start_index)
+        },
+        multi_config: if cli_wins("multi_config") {
+            cli.multi_config
+        } else {
+            cfg.multi_config.unwrap_or(d.multi_config)
         },
         width: if cli_wins("width") {
             cli.width

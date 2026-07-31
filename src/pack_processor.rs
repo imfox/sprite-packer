@@ -18,6 +18,9 @@ pub struct PackOptions {
     pub suffix: String,
     /// Starting index for multi-sheet file names (e.g. `atlas-1`, `atlas-2`).
     pub sheet_start_index: u32,
+    /// Generate one metadata file per sheet. When false, all sheets' sprites are
+    /// merged into a single metadata file (each sprite stamped with its image).
+    pub multi_config: bool,
     pub width: u32,
     pub height: u32,
     pub power_of_two: bool,
@@ -49,6 +52,7 @@ impl Default for PackOptions {
             texture_name: "atlas".into(),
             suffix: "-".into(),
             sheet_start_index: 0,
+            multi_config: true,
             width: 2048,
             height: 2048,
             power_of_two: false,

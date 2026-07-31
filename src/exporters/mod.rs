@@ -64,6 +64,60 @@ const JSON_ARRAY_TEMPLATE: &str = r#"[
   }{% if not loop.last %},{% endif %}
 {% endfor %}]"#;
 
+/// JsonHash template for merged multi-sheet output — adds an `image` field naming
+/// the sheet each sprite belongs to.
+const JSON_HASH_TEMPLATE_MERGED: &str = r#"{
+  "name": "{{ base_name }}.png",
+  "sprites": [
+{% for r in sprites %}    {
+      "frame": {
+        "h": {{ r.frame.h }},
+        "w": {{ r.frame.w }},
+        "x": {{ r.frame.x }},
+        "y": {{ r.frame.y }}
+      },
+      "image": {{ r.image | to_json }},
+      "name": {{ r.name | to_json }},
+      "rotated": {{ r.rotated }},
+      "sourceSize": {
+        "h": {{ r.source_size.h }},
+        "w": {{ r.source_size.w }}
+      },
+      "spriteSourceSize": {
+        "h": {{ r.sprite_source_size.h }},
+        "w": {{ r.sprite_source_size.w }},
+        "x": {{ r.sprite_source_size.x }},
+        "y": {{ r.sprite_source_size.y }}
+      },
+      "trimmed": {{ r.trimmed }}
+    }{% if not loop.last %},{% endif %}
+{% endfor %}  ]
+}"#;
+
+/// JsonArray template for merged multi-sheet output.
+const JSON_ARRAY_TEMPLATE_MERGED: &str = r#"[
+{% for r in sprites %}  {
+    "name": {{ r.name | to_json }},
+    "image": {{ r.image | to_json }},
+    "x": {{ r.frame.x }},
+    "y": {{ r.frame.y }},
+    "w": {{ r.frame.w }},
+    "h": {{ r.frame.h }},
+    "rotated": {{ r.rotated }},
+    "trimmed": {{ r.trimmed }},
+    "spriteSourceSize": {
+      "x": {{ r.sprite_source_size.x }},
+      "y": {{ r.sprite_source_size.y }},
+      "w": {{ r.sprite_source_size.w }},
+      "h": {{ r.sprite_source_size.h }}
+    },
+    "sourceSize": {
+      "w": {{ r.source_size.w }},
+      "h": {{ r.source_size.h }}
+    }
+  }{% if not loop.last %},{% endif %}
+{% endfor %}]"#;
+
 /// Built-in exporters list.
 pub fn list_exporters() -> Vec<ExporterDescriptor> {
     vec![
@@ -96,6 +150,8 @@ pub fn get_exporter_by_type(type_name: &str) -> Option<ExporterDescriptor> {
 #[derive(Debug, Clone, Serialize)]
 pub struct ExportRect {
     pub name: String,
+    /// Atlas image this sprite belongs to; set only for merged multi-sheet export.
+    pub image: Option<String>,
     #[serde(flatten)]
     pub frame: ExportFrame,
     pub rotated: bool,
@@ -131,17 +187,55 @@ pub fn start_exporter(
     remove_file_extension: bool,
     template: Option<&str>,
 ) -> Result<String, String> {
-    let exporter = get_exporter_by_type(type_name)
-        .unwrap_or_else(|| get_exporter_by_type("JsonHash").unwrap());
-
-    let template = match template {
-        Some(path) => std::fs::read_to_string(path)
-            .map_err(|e| format!("Error reading template '{}': {}", path, e))?,
-        None => exporter.template.to_string(),
-    };
-
+    let template = resolve_template(type_name, template, false)?;
     let export_rects: Vec<ExportRect> = prepare_data(rects, remove_file_extension);
     render(&template, &export_rects, base_name)
+}
+
+/// Export a single merged metadata file covering multiple sheets. Each sprite is
+/// stamped with the `image` field of the sheet it belongs to. `groups` holds
+/// (image_name, sprites) per sheet.
+pub fn start_exporter_merged(
+    type_name: &str,
+    groups: &[(String, &[RectData])],
+    base_name: &str,
+    remove_file_extension: bool,
+    template: Option<&str>,
+) -> Result<String, String> {
+    let template = resolve_template(type_name, template, true)?;
+
+    let export_rects: Vec<ExportRect> = groups
+        .iter()
+        .flat_map(|(image, rects)| {
+            prepare_data(rects, remove_file_extension)
+                .into_iter()
+                .map(move |mut r| {
+                    r.image = Some(image.clone());
+                    r
+                })
+        })
+        .collect();
+
+    render(&template, &export_rects, base_name)
+}
+
+/// Resolve the template to render: a custom template file when given, otherwise the
+/// built-in template for the exporter (`merged` picks the merged variant).
+fn resolve_template(type_name: &str, custom: Option<&str>, merged: bool) -> Result<String, String> {
+    if let Some(path) = custom {
+        return std::fs::read_to_string(path)
+            .map_err(|e| format!("Error reading template '{}': {}", path, e));
+    }
+    let exporter = get_exporter_by_type(type_name)
+        .unwrap_or_else(|| get_exporter_by_type("JsonHash").unwrap());
+    Ok(if merged {
+        match exporter.type_name {
+            "JsonArray" => JSON_ARRAY_TEMPLATE_MERGED.to_string(),
+            _ => JSON_HASH_TEMPLATE_MERGED.to_string(),
+        }
+    } else {
+        exporter.template.to_string()
+    })
 }
 
 /// Strip the last `.ext` segment, mirroring the JS `split(".").pop()`.
@@ -161,6 +255,7 @@ fn prepare_data(rects: &[RectData], remove_file_extension: bool) -> Vec<ExportRe
             } else {
                 r.name.clone()
             },
+            image: None,
             frame: ExportFrame {
                 x: r.frame.x,
                 y: r.frame.y,
@@ -200,7 +295,7 @@ fn to_json(value: &minijinja::Value) -> String {
 }
 
 fn rect_to_json(r: &ExportRect) -> serde_json::Value {
-    serde_json::json!({
+    let mut obj = serde_json::json!({
         "frame": { "x": r.frame.x, "y": r.frame.y, "w": r.frame.w, "h": r.frame.h },
         "name": r.name,
         "rotated": r.rotated,
@@ -212,5 +307,9 @@ fn rect_to_json(r: &ExportRect) -> serde_json::Value {
             "h": r.sprite_source_size.h
         },
         "trimmed": r.trimmed,
-    })
+    });
+    if let Some(image) = &r.image {
+        obj["image"] = serde_json::Value::String(image.clone());
+    }
+    obj
 }
