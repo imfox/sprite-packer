@@ -111,6 +111,7 @@ impl FilesProcessor {
                     options.template.as_deref(),
                     &options.vars,
                     std::slice::from_ref(&atlas_info),
+                    sheets.len(),
                     options,
                 )?;
                 results.push(PackResult {
@@ -129,6 +130,7 @@ impl FilesProcessor {
                 options.template.as_deref(),
                 &options.vars,
                 &images,
+                sheets.len(),
                 options,
             )?;
             results.push(PackResult {

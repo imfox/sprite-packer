@@ -229,12 +229,19 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 
 | 变量 | 类型 | 说明 |
 |---|---|---|
-| `single_config` | 布尔 | 本次导出是否为合并模式：`true` 时所有图集合并为一份配置（每个精灵带 `image`、`index` 字段），`false` 时每个图集各生成一份配置 |
+| `exports` | 对象 | 本次导出的生成信息，见下表 |
 | `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
 | `images` | 数组 | 每张图集一个对象，按 sheet 顺序排列：`name`（图集文件名，如 `atlas-0.png`）、`index`（图集序号）、`width`、`height`（渲染后图集的宽高） |
 | `image_dict` | 对象 | 以图集文件名为键的映射，值为图集信息对象（`name`、`index`、`width`、`height`）。遍历 sprites 时可用 `image_dict[r.image]` 取当前精灵所属图集的信息。按图集名访问而不是按 `index` 数组下标，因为 `index` 可能不从 0 开始（受 `--sheet-start-index` 影响） |
-| `options` | 对象 | 本次打包的全部生成参数（`PackOptions`，snake_case 键），如 `options.single_config`、`options.width`、`options.padding`、`options.allow_rotation`。其中 `options.input` 是输入目录路径，可用 `| basename` 取出最后一段。注意其中的 `options.single_config` 是用户传入的合并选项；顶层 `single_config` 表示本次导出是否为合并模式 |
+| `options` | 对象 | 本次打包的全部生成参数（`PackOptions`，snake_case 键），如 `options.single_config`、`options.width`、`options.padding`、`options.allow_rotation`。其中 `options.input` 是输入目录路径，可用 `| basename` 取出最后一段 |
 | `vars` | 对象 | `--vars` 或配置 `vars` 传入的额外键值对，`{{ vars.<key> }}` 访问（值按 JSON 解析时可为数字/布尔/对象/数组） |
+
+`exports` 对象的字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `exports.single_config` | 布尔 | 本次导出是否为合并模式：`true` 时所有图集合并为一份配置（每个精灵带 `image`、`index` 字段），`false` 时每个图集各生成一份配置 |
+| `exports.image_count` | 整数 | 生成的图集（sheet）数量 |
 
 `sprites` 中每个元素 `r` 的字段：
 
@@ -268,7 +275,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 
 ### 默认模板参考
 
-内置 JsonHash 模板（`{% if single_config %}` 段仅在合并模式下输出 `image` 与 `index` 字段，每个图集单独配置时保持纯净）：
+内置 JsonHash 模板（`{% if exports.single_config %}` 段仅在合并模式下输出 `image` 与 `index` 字段，每个图集单独配置时保持纯净）：
 
 ```jinja
 {
@@ -281,7 +288,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
         "x": {{ r.frame.x }},
         "y": {{ r.frame.y }}
       },
-{% if single_config %}      "image": {{ r.image | to_json }},
+{% if exports.single_config %}      "image": {{ r.image | to_json }},
       "index": {{ r.index }},
 {% endif %}      "name": {{ r.name | to_json }},
       "rotated": {{ r.rotated }},
@@ -307,7 +314,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 [
 {% for r in sprites %}  {
     "name": {{ r.name | to_json }},
-{% if single_config %}    "image": {{ r.image | to_json }},
+{% if exports.single_config %}    "image": {{ r.image | to_json }},
     "index": {{ r.index }},
 {% endif %}    "x": {{ r.frame.x }},
     "y": {{ r.frame.y }},
