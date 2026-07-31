@@ -2,6 +2,9 @@ use serde::Serialize;
 
 use crate::pack_processor::RectData;
 
+/// Extra key-value variables available to the template context as `vars.<key>`.
+pub type Vars = std::collections::HashMap<String, serde_json::Value>;
+
 /// Exporter descriptor, mirrors exporters/list.json.
 pub struct ExporterDescriptor {
     pub type_name: &'static str,
@@ -136,7 +139,8 @@ pub struct ExportSize {
 /// `template` optionally points to a custom MiniJinja template file that overrides
 /// the exporter's built-in template. `sheet_index` and `image` identify the atlas
 /// sheet these rects belong to. Per-sheet export always uses multi_config=true so
-/// the built-in template matches the reference output.
+/// the built-in template matches the reference output. `vars` are extra key-value
+/// pairs exposed to the template context.
 pub fn start_exporter(
     type_name: &str,
     rects: &[RectData],
@@ -145,10 +149,11 @@ pub fn start_exporter(
     image: &str,
     remove_file_extension: bool,
     template: Option<&str>,
+    vars: &Vars,
 ) -> Result<String, String> {
     let template = resolve_template(type_name, template)?;
-    let prepared = prepare_data(rects, remove_file_extension, sheet_index, image, true);
-    render(&template, &prepared.rects, base_name, prepared.multi_config)
+    let prepared = prepare_data(rects, remove_file_extension, sheet_index, image, true, vars);
+    render(&template, &prepared.rects, base_name, prepared.multi_config, &prepared.vars)
 }
 
 /// Export a single merged metadata file covering multiple sheets. Each sprite is
@@ -160,17 +165,18 @@ pub fn start_exporter_merged(
     base_name: &str,
     remove_file_extension: bool,
     template: Option<&str>,
+    vars: &Vars,
 ) -> Result<String, String> {
     let template = resolve_template(type_name, template)?;
 
     let export_rects: Vec<ExportRect> = groups
         .iter()
         .flat_map(|(index, image, rects)| {
-            prepare_data(rects, remove_file_extension, *index, image, false).rects
+            prepare_data(rects, remove_file_extension, *index, image, false, vars).rects
         })
         .collect();
 
-    render(&template, &export_rects, base_name, false)
+    render(&template, &export_rects, base_name, false, vars)
 }
 
 /// Resolve the template to render: a custom template file when given, otherwise the
@@ -194,10 +200,12 @@ fn strip_extension(name: &str) -> String {
 }
 
 /// Prepared export data, carrying the multi-config flag so the template can tell
-/// per-sheet output (one config per atlas) from merged output (one config for all).
+/// per-sheet output (one config per atlas) from merged output (one config for all),
+/// plus the extra variables available to the template.
 pub struct PreparedExport {
     pub rects: Vec<ExportRect>,
     pub multi_config: bool,
+    pub vars: Vars,
 }
 
 fn prepare_data(
@@ -206,6 +214,7 @@ fn prepare_data(
     sheet_index: u32,
     image: &str,
     multi_config: bool,
+    vars: &Vars,
 ) -> PreparedExport {
     PreparedExport {
         rects: rects
@@ -239,6 +248,7 @@ fn prepare_data(
             })
             .collect(),
         multi_config,
+        vars: vars.clone(),
     }
 }
 
@@ -248,12 +258,14 @@ fn render(
     rects: &[ExportRect],
     base_name: &str,
     multi_config: bool,
+    vars: &Vars,
 ) -> Result<String, String> {
     let sprites: Vec<serde_json::Value> = rects.iter().map(rect_to_json).collect();
     let ctx = serde_json::json!({
         "base_name": base_name,
         "multi_config": multi_config,
         "sprites": sprites,
+        "vars": vars,
     });
 
     let mut env = minijinja::Environment::new();
@@ -346,8 +358,9 @@ mod tests {
     #[test]
     fn per_sheet_output_matches_old_template() {
         let rects = sample_rects();
-        let old = render(OLD_HASH_TEMPLATE, &rects, "atlas", true).unwrap();
-        let new = render(JSON_HASH_TEMPLATE, &rects, "atlas", true).unwrap();
+        let vars = Vars::new();
+        let old = render(OLD_HASH_TEMPLATE, &rects, "atlas", true, &vars).unwrap();
+        let new = render(JSON_HASH_TEMPLATE, &rects, "atlas", true, &vars).unwrap();
         assert_eq!(old, new);
         assert!(!new.contains("image"));
         assert!(!new.contains("index"));
@@ -356,7 +369,8 @@ mod tests {
     #[test]
     fn merged_hash_output_has_image_and_index() {
         let rects = sample_rects();
-        let out = render(JSON_HASH_TEMPLATE, &rects, "atlas", false).unwrap();
+        let vars = Vars::new();
+        let out = render(JSON_HASH_TEMPLATE, &rects, "atlas", false, &vars).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         assert!(out.contains("\"image\": \"atlas-2.png\""));
@@ -368,7 +382,8 @@ mod tests {
     #[test]
     fn merged_array_output_has_image_and_index() {
         let rects = sample_rects();
-        let out = render(JSON_ARRAY_TEMPLATE, &rects, "atlas", false).unwrap();
+        let vars = Vars::new();
+        let out = render(JSON_ARRAY_TEMPLATE, &rects, "atlas", false, &vars).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         // JsonArray mirrors the struct order: name, image, index
@@ -376,5 +391,16 @@ mod tests {
         let image = out.find("\"image\": \"atlas-1.png\"").unwrap();
         let index = out.find("\"index\": 1").unwrap();
         assert!(name < image && image < index);
+    }
+
+    #[test]
+    fn vars_are_exposed_to_template_context() {
+        let rects = sample_rects();
+        let mut vars = Vars::new();
+        vars.insert("author".into(), serde_json::json!("me"));
+        vars.insert("version".into(), serde_json::json!(2));
+        let tpl = "author={{ vars.author | to_json }} version={{ vars.version }}";
+        let out = render(tpl, &rects, "atlas", true, &vars).unwrap();
+        assert_eq!(out, "author=\"me\" version=2");
     }
 }

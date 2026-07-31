@@ -44,6 +44,8 @@ pub struct PackOptions {
     pub template: Option<String>,
     /// Output file extension for the metadata when a custom template is used.
     pub template_extension: Option<String>,
+    /// Extra key-value variables exposed to the template context as `vars.<key>`.
+    pub vars: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl Default for PackOptions {
@@ -73,6 +75,7 @@ impl Default for PackOptions {
             remove_file_extension: false,
             template: None,
             template_extension: None,
+            vars: std::collections::HashMap::new(),
         }
     }
 }

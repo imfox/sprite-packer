@@ -49,6 +49,8 @@ struct ConfigFile {
     template: Option<String>,
     #[serde(alias = "template-extension")]
     template_extension: Option<String>,
+    /// Extra key-value variables exposed to the template context as `vars.<key>`.
+    vars: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Parser)]
@@ -151,6 +153,13 @@ struct Cli {
     /// Output file extension for the metadata when a custom template is used
     #[arg(long = "template-extension", value_name = "EXT")]
     template_extension: Option<String>,
+
+    /// Extra key=value variables exposed to the template context as `vars.<key>`.
+    /// Values are parsed as JSON when possible (2, true, {"a": 1}), else kept as
+    /// plain strings. May be repeated: `--vars a=1 --vars b=2`, or one flag with
+    /// multiple pairs: `--vars a=1 b=2`.
+    #[arg(long = "vars", value_name = "KEY=VALUE", num_args = 1..)]
+    vars: Vec<String>,
 }
 
 /// Default config template written by --gen-config.
@@ -183,6 +192,7 @@ struct DefaultConfig {
     remove_file_extension: bool,
     template: &'static str,
     template_extension: &'static str,
+    vars: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Defaults mirror PackOptions::default() plus the input/output placeholders.
@@ -214,6 +224,7 @@ fn default_config() -> DefaultConfig {
         remove_file_extension: false,
         template: "",
         template_extension: "",
+        vars: std::collections::HashMap::new(),
     }
 }
 
@@ -270,7 +281,13 @@ fn main() {
         }
     };
 
-    let options = build_options(&matches, &cli, &cfg);
+    let options = match build_options(&matches, &cli, &cfg) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // 1. Scan directory
     if !cli.quiet {
@@ -357,11 +374,11 @@ fn load_config(path: Option<&str>) -> ConfigFile {
 /// Merge CLI args and config file into PackOptions. For every key, the command line
 /// wins when the user explicitly typed it; otherwise the config file value is used,
 /// falling back to the PackOptions default.
-fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> PackOptions {
+fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> Result<PackOptions, String> {
     let d = PackOptions::default();
     let cli_wins = |name: &str| matches.value_source(name) == Some(ValueSource::CommandLine);
 
-    PackOptions {
+    Ok(PackOptions {
         texture_name: if cli_wins("texture_name") {
             cli.texture_name.clone()
         } else {
@@ -462,5 +479,25 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> PackOptio
         } else {
             cfg.template_extension.clone().or(d.template_extension)
         },
+        vars: merge_vars(cfg, cli)?,
+    })
+}
+
+/// Merge config-file `vars` with command-line `KEY=VALUE` pairs. CLI keys override
+/// config keys one by one. CLI values are parsed as JSON when possible (2, true,
+/// {"a": 1}), otherwise kept as plain strings.
+fn merge_vars(cfg: &ConfigFile, cli: &Cli) -> Result<std::collections::HashMap<String, serde_json::Value>, String> {
+    let mut vars = cfg.vars.clone().unwrap_or_default();
+    for kv in &cli.vars {
+        let (k, v) = kv
+            .split_once('=')
+            .ok_or_else(|| format!("Invalid --vars value '{}' — expected KEY=VALUE", kv))?;
+        if k.is_empty() {
+            return Err(format!("Invalid --vars value '{}' — empty key", kv));
+        }
+        let val = serde_json::from_str::<serde_json::Value>(v)
+            .unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+        vars.insert(k.to_string(), val);
     }
+    Ok(vars)
 }

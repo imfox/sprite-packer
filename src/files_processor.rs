@@ -97,6 +97,7 @@ impl FilesProcessor {
                     &image_name,
                     options.remove_file_extension,
                     options.template.as_deref(),
+                    &options.vars,
                 )?;
                 results.push(PackResult {
                     name: format!("{}.{}", fname, metadata_ext(options)),
@@ -113,6 +114,7 @@ impl FilesProcessor {
                 &options.texture_name,
                 options.remove_file_extension,
                 options.template.as_deref(),
+                &options.vars,
             )?;
             results.push(PackResult {
                 name: format!("{}.{}", options.texture_name, metadata_ext(options)),

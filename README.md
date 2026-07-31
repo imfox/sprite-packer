@@ -71,6 +71,7 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | `--scale <F>` | 缩放因子 | `1.0` |
 | `--template <FILE>` | 自定义 MiniJinja 模板文件，覆盖内置导出模板（见下文「自定义模板」） | 无 |
 | `--template-extension <EXT>` | 自定义模板输出的元数据文件扩展名 | 取 exporter 默认（`json`） |
+| `--vars <KEY=VALUE>...` | 传给模板的额外键值对，模板中以 `{{ vars.<key> }}` 访问；值尽量按 JSON 解析（`2`、`true`、`{"a":1}`），否则作为字符串。可重复：`--vars a=1 --vars b=2`，或一个参数带多对：`--vars a=1 b=2` | 无 |
 
 ### 打包器与方法
 
@@ -143,7 +144,8 @@ sprite-packer --gen-config default.json
     "textureFormat": "png",
     "removeFileExtension": false,
     "template": "",
-    "templateExtension": ""
+    "templateExtension": "",
+    "vars": {}
 }
 ```
 
@@ -200,7 +202,14 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 
 - `--template` 指向一个 MiniJinja 模板文件，渲染结果替代内置导出器模板的输出
 - `--template-extension` 指定元数据输出文件的后缀（默认沿用 exporter 的 `json`）
+- `--vars key=value ...` 传入额外键值对，模板中用 `{{ vars.key }}` 读取（值按 JSON 解析，数字/布尔/对象均可；字符串建议配合 `| to_json` 写 JSON 值）
 - 模板文件读取失败或模板语法错误时，程序报错并以非零码退出
+
+```bash
+# 向模板传入自定义字段
+sprite-packer -i ./images -o ./out --template my.tpl \
+  --vars author=me version=2 "publish=true"
+```
 
 ### 模板上下文变量
 
@@ -211,6 +220,7 @@ sprite-packer -i ./images -o ./out --template starling.tpl --template-extension 
 | `base_name` | 字符串 | atlas 基础文件名（对应图片输出 `{base_name}.png`） |
 | `multi_config` | 布尔 | 是否每个图集各生成一份配置（`--multi-config`，合并模式下为 `false`） |
 | `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
+| `vars` | 对象 | `--vars` 或配置 `vars` 传入的额外键值对，`{{ vars.<key> }}` 访问（值按 JSON 解析时可为数字/布尔/对象/数组） |
 
 `sprites` 中每个元素 `r` 的字段：
 
