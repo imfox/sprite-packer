@@ -54,7 +54,7 @@ sprite-packer -i <输入目录> -o <输出目录> [选项]
 | `-q, --quiet` | 静默模式，不打印任何信息（错误仍输出到 stderr） | 关闭 |
 | `--texture-name <NAME>` | 输出文件基础名 | `atlas` |
 | `--sheet-start-index <N>` | 多 sheet 文件名的起始序号（如 `atlas-0`、`atlas-1`） | `0` |
-| `--multi-config [true/false]` | 多图集时每个图集各生成一份配置；`false` 时合并为一个配置（每个精灵带 `image` 字段） | `true` |
+| `--single-config [true/false]` | 多图集时合并为一个配置（每个精灵带 `image` 字段）；`false` 时每个图集各生成一份配置 | `false` |
 | `--width <N>` | 单张 atlas 最大宽度 | `2048` |
 | `--height <N>` | 单张 atlas 最大高度 | `2048` |
 | `--power-of-two` | 强制 Power-of-Two 尺寸 | `false` |
@@ -124,7 +124,7 @@ sprite-packer --gen-config default.json
     "textureName": "atlas",
     "suffix": "-",
     "sheetStartIndex": 0,
-    "multiConfig": true,
+    "singleConfig": false,
     "powerOfTwo": false,
     "fixedSize": false,
     "width": 2048,
@@ -178,7 +178,7 @@ TexturePacker 风格的哈希索引：
 
 碎图较多、超过单张图集尺寸上限时，会自动拆分为多张图集（`atlas-0.png`、`atlas-1.png`…）。
 
-**默认（`--multi-config` 开启，常见情况）**：每张图集各生成一份配置，配置只包含该图集自己的精灵，`name` 指向对应的图集文件。N 张图集产生 N 份配置（`atlas-0.json`、`atlas-1.json`…）。单张图集的配置格式如下：
+**默认（`--single-config` 关闭，常见情况）**：每张图集各生成一份配置，配置只包含该图集自己的精灵，`name` 指向对应的图集文件。N 张图集产生 N 份配置（`atlas-0.json`、`atlas-1.json`…）。单张图集的配置格式如下：
 
 ```json
 {
@@ -190,7 +190,7 @@ TexturePacker 风格的哈希索引：
 }
 ```
 
-**合并为一份（可选）**：设置 `--multi-config false` 时，所有图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带 `image`（所属图集文件名）与 `index`（图集序号，配合 `--sheet-start-index`）字段标明所属图集：
+**合并为一份（可选）**：设置 `--single-config` 时，所有图集的精灵合并进**一个**配置文件（`atlas.json`），每个精灵额外带 `image`（所属图集文件名）与 `index`（图集序号，配合 `--sheet-start-index`）字段标明所属图集：
 
 ```json
 {
@@ -230,8 +230,11 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 | 变量 | 类型 | 说明 |
 |---|---|---|
 | `base_name` | 字符串 | atlas 基础文件名（对应图片输出 `{base_name}.png`） |
-| `multi_config` | 布尔 | 是否每个图集各生成一份配置（`--multi-config`，合并模式下为 `false`） |
+| `single_config` | 布尔 | 本次导出是否为合并模式：`true` 时所有图集合并为一份配置（每个精灵带 `image`、`index` 字段），`false` 时每个图集各生成一份配置 |
 | `sprites` | 数组 | 每个精灵一个对象，字段见下表 |
+| `images` | 数组 | 每张图集一个对象，按 sheet 顺序排列：`name`（图集文件名，如 `atlas-0.png`）、`index`（图集序号）、`width`、`height`（渲染后图集的宽高） |
+| `input_dir` | 字符串 | 输入目录的基础名（如输入 `images/back.img` 则为 `back.img`），常用来做 `frames` 之类的分组键 |
+| `options` | 对象 | 本次打包的全部生成参数（`PackOptions`，snake_case 键），如 `options.single_config`、`options.width`、`options.padding`、`options.allow_rotation`。注意其中的 `options.single_config` 是用户传入的合并选项；顶层 `single_config` 表示本次导出是否为合并模式 |
 | `vars` | 对象 | `--vars` 或配置 `vars` 传入的额外键值对，`{{ vars.<key> }}` 访问（值按 JSON 解析时可为数字/布尔/对象/数组） |
 
 `sprites` 中每个元素 `r` 的字段：
@@ -247,7 +250,10 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 | `r.sprite_source_size` | `{x, y, w, h}` | 裁剪后的内容在原图中的区域 |
 | `r.source_size` | `{w, h}` | 原图完整尺寸 |
 
-模板语法遵循 [MiniJinja](https://jinja.palletsprojects.com/en/stable/templates/) 官方文档。本工具额外注册了一个过滤器 `to_json`，用于把值编码为 JSON 字面量（字符串自动转义引号，写 JSON 的字符串值时务必使用，如 `{{ r.name | to_json }}`）。
+模板语法遵循 [MiniJinja](https://jinja.palletsprojects.com/en/stable/templates/) 官方文档。本工具额外注册了两个过滤器：
+
+- `to_json`：把值编码为 JSON 字面量（字符串自动转义引号，写 JSON 的字符串值时务必使用，如 `{{ r.name | to_json }}`）
+- `strip_ext`：去掉文件名的最后一个扩展名（`x.png` → `x`），可用作 `frames` 的键名：`{{ r.name | strip_ext | to_json }}`
 
 ### 示例（Starling XML）
 
@@ -262,7 +268,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 
 ### 默认模板参考
 
-内置 JsonHash 模板（`{% if not multi_config %}` 段仅在合并模式下输出 `image` 与 `index` 字段，每个图集单独配置时保持纯净）：
+内置 JsonHash 模板（`{% if single_config %}` 段仅在合并模式下输出 `image` 与 `index` 字段，每个图集单独配置时保持纯净）：
 
 ```jinja
 {
@@ -275,7 +281,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
         "x": {{ r.frame.x }},
         "y": {{ r.frame.y }}
       },
-{% if not multi_config %}      "image": {{ r.image | to_json }},
+{% if single_config %}      "image": {{ r.image | to_json }},
       "index": {{ r.index }},
 {% endif %}      "name": {{ r.name | to_json }},
       "rotated": {{ r.rotated }},
@@ -301,7 +307,7 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 [
 {% for r in sprites %}  {
     "name": {{ r.name | to_json }},
-{% if not multi_config %}    "image": {{ r.image | to_json }},
+{% if single_config %}    "image": {{ r.image | to_json }},
     "index": {{ r.index }},
 {% endif %}    "x": {{ r.frame.x }},
     "y": {{ r.frame.y }},

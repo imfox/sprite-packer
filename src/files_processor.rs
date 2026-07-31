@@ -1,6 +1,6 @@
 use image::DynamicImage;
 
-use crate::exporters;
+use crate::exporters::{self, AtlasInfo};
 use crate::pack_processor::{PackOptions, PackResult, RectData};
 use crate::utils::{TextureRenderer, RenderItem, RenderOptions};
 use crate::filters;
@@ -19,9 +19,10 @@ impl FilesProcessor {
         let suffix = &options.suffix;
         let multi_sheet = sheets.len() > 1;
         // Multi-sheet configs can be merged into a single metadata file
-        let merged = multi_sheet && !options.multi_config;
+        let merged = multi_sheet && options.single_config;
 
         let mut groups: Vec<(u32, String, &[RectData])> = Vec::new();
+        let mut images: Vec<AtlasInfo> = Vec::new();
 
         for (sheet_idx, sheet) in sheets.iter().enumerate() {
             // Build render items
@@ -61,6 +62,9 @@ impl FilesProcessor {
                 filter.apply(&mut render_result.image);
             }
 
+            let img_w = render_result.image.width();
+            let img_h = render_result.image.height();
+
             // Encode PNG
             let mut png_buf = std::io::Cursor::new(Vec::new());
             let img = DynamicImage::ImageRgba8(render_result.image);
@@ -78,6 +82,15 @@ impl FilesProcessor {
             };
 
             let image_name = format!("{}.png", fname);
+
+            // Atlas info exposed to the template context as `images`
+            let atlas_info = AtlasInfo {
+                name: image_name.clone(),
+                index,
+                width: img_w,
+                height: img_h,
+            };
+            images.push(atlas_info.clone());
 
             // Push atlas image
             results.push(PackResult {
@@ -98,6 +111,9 @@ impl FilesProcessor {
                     options.remove_file_extension,
                     options.template.as_deref(),
                     &options.vars,
+                    std::slice::from_ref(&atlas_info),
+                    &options.input_dir,
+                    options,
                 )?;
                 results.push(PackResult {
                     name: format!("{}.{}", fname, metadata_ext(options)),
@@ -115,6 +131,9 @@ impl FilesProcessor {
                 options.remove_file_extension,
                 options.template.as_deref(),
                 &options.vars,
+                &images,
+                &options.input_dir,
+                options,
             )?;
             results.push(PackResult {
                 name: format!("{}.{}", options.texture_name, metadata_ext(options)),

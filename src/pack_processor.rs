@@ -1,4 +1,5 @@
 use image::DynamicImage;
+use serde::Serialize;
 
 use crate::math::Rect;
 use crate::packers::{BinOptions, MaxRectsBin, NpmMethod, NpmPacker, PackMethod};
@@ -12,15 +13,16 @@ enum Combo {
 }
 
 /// Options for the packing process. Mirrors index.js defaults.
-#[derive(Debug, Clone)]
+/// Serialized into the template context as `options` (snake_case keys).
+#[derive(Debug, Clone, Serialize)]
 pub struct PackOptions {
     pub texture_name: String,
     pub suffix: String,
     /// Starting index for multi-sheet file names (e.g. `atlas-1`, `atlas-2`).
     pub sheet_start_index: u32,
-    /// Generate one metadata file per sheet. When false, all sheets' sprites are
-    /// merged into a single metadata file (each sprite stamped with its image).
-    pub multi_config: bool,
+    /// Merge all sheets' sprites into a single metadata file (each sprite stamped
+    /// with its image). When false, generate one metadata file per sheet.
+    pub single_config: bool,
     pub width: u32,
     pub height: u32,
     pub power_of_two: bool,
@@ -46,6 +48,9 @@ pub struct PackOptions {
     pub template_extension: Option<String>,
     /// Extra key-value variables exposed to the template context as `vars.<key>`.
     pub vars: std::collections::HashMap<String, serde_json::Value>,
+    /// Base name of the input directory, exposed to the template context as
+    /// `input_dir` (e.g. the `frames.<input_dir>` key in the Artbook format).
+    pub input_dir: String,
 }
 
 impl Default for PackOptions {
@@ -54,7 +59,7 @@ impl Default for PackOptions {
             texture_name: "atlas".into(),
             suffix: "-".into(),
             sheet_start_index: 0,
-            multi_config: true,
+            single_config: false,
             width: 2048,
             height: 2048,
             power_of_two: false,
@@ -76,6 +81,7 @@ impl Default for PackOptions {
             template: None,
             template_extension: None,
             vars: std::collections::HashMap::new(),
+            input_dir: "".into(),
         }
     }
 }

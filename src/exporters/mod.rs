@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::pack_processor::RectData;
+use crate::pack_processor::{PackOptions, RectData};
 
 /// Extra key-value variables available to the template context as `vars.<key>`.
 pub type Vars = std::collections::HashMap<String, serde_json::Value>;
@@ -15,9 +15,19 @@ pub struct ExporterDescriptor {
     pub template: &'static str,
 }
 
+/// Metadata for one rendered atlas image, exposed to the template context as
+/// `images` (one entry per atlas, in sheet order).
+#[derive(Debug, Clone)]
+pub struct AtlasInfo {
+    pub name: String,
+    pub index: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// JsonHash template. Key order is alphabetical (matches the old BTreeMap-built output).
-/// Per-sheet output (multi_config=true) matches the reference; when sheets are merged
-/// into one config (multi_config=false), each sprite is stamped with the atlas `image`
+/// Per-sheet output (single_config=false) matches the reference; when sheets are merged
+/// into one config (single_config=true), each sprite is stamped with the atlas `image`
 /// and `index` it belongs to.
 const JSON_HASH_TEMPLATE: &str = r#"{
   "name": "{{ base_name }}.png",
@@ -29,7 +39,7 @@ const JSON_HASH_TEMPLATE: &str = r#"{
         "x": {{ r.frame.x }},
         "y": {{ r.frame.y }}
       },
-{% if not multi_config %}      "image": {{ r.image | to_json }},
+{% if single_config %}      "image": {{ r.image | to_json }},
       "index": {{ r.index }},
 {% endif %}      "name": {{ r.name | to_json }},
       "rotated": {{ r.rotated }},
@@ -53,7 +63,7 @@ const JSON_HASH_TEMPLATE: &str = r#"{
 const JSON_ARRAY_TEMPLATE: &str = r#"[
 {% for r in sprites %}  {
     "name": {{ r.name | to_json }},
-{% if not multi_config %}    "image": {{ r.image | to_json }},
+{% if single_config %}    "image": {{ r.image | to_json }},
     "index": {{ r.index }},
 {% endif %}    "x": {{ r.frame.x }},
     "y": {{ r.frame.y }},
@@ -138,9 +148,10 @@ pub struct ExportSize {
 ///
 /// `template` optionally points to a custom MiniJinja template file that overrides
 /// the exporter's built-in template. `sheet_index` and `image` identify the atlas
-/// sheet these rects belong to. Per-sheet export always uses multi_config=true so
-/// the built-in template matches the reference output. `vars` are extra key-value
-/// pairs exposed to the template context.
+/// sheet these rects belong to. Per-sheet export always uses single_config=false so
+/// the built-in template matches the reference output. `images` and `input_dir` are
+/// exposed to the template context, and the full generation parameters are exposed
+/// as `options`. `vars` are extra key-value pairs exposed as `vars.<key>`.
 pub fn start_exporter(
     type_name: &str,
     rects: &[RectData],
@@ -150,15 +161,28 @@ pub fn start_exporter(
     remove_file_extension: bool,
     template: Option<&str>,
     vars: &Vars,
+    images: &[AtlasInfo],
+    input_dir: &str,
+    options: &PackOptions,
 ) -> Result<String, String> {
     let template = resolve_template(type_name, template)?;
-    let prepared = prepare_data(rects, remove_file_extension, sheet_index, image, true, vars);
-    render(&template, &prepared.rects, base_name, prepared.multi_config, &prepared.vars)
+    let prepared = prepare_data(rects, remove_file_extension, sheet_index, image, false, vars);
+    render(
+        &template,
+        &prepared.rects,
+        base_name,
+        prepared.single_config,
+        &prepared.vars,
+        images,
+        input_dir,
+        options,
+    )
 }
 
 /// Export a single merged metadata file covering multiple sheets. Each sprite is
 /// stamped with the `image` (atlas file name) and `index` (atlas sheet index) of the
 /// sheet it belongs to. `groups` holds (sheet_index, image_name, sprites) per sheet.
+/// `images`, `input_dir` and `options` are exposed to the template context.
 pub fn start_exporter_merged(
     type_name: &str,
     groups: &[(u32, String, &[RectData])],
@@ -166,17 +190,20 @@ pub fn start_exporter_merged(
     remove_file_extension: bool,
     template: Option<&str>,
     vars: &Vars,
+    images: &[AtlasInfo],
+    input_dir: &str,
+    options: &PackOptions,
 ) -> Result<String, String> {
     let template = resolve_template(type_name, template)?;
 
     let export_rects: Vec<ExportRect> = groups
         .iter()
         .flat_map(|(index, image, rects)| {
-            prepare_data(rects, remove_file_extension, *index, image, false, vars).rects
+            prepare_data(rects, remove_file_extension, *index, image, true, vars).rects
         })
         .collect();
 
-    render(&template, &export_rects, base_name, false, vars)
+    render(&template, &export_rects, base_name, true, vars, images, input_dir, options)
 }
 
 /// Resolve the template to render: a custom template file when given, otherwise the
@@ -199,12 +226,12 @@ fn strip_extension(name: &str) -> String {
     }
 }
 
-/// Prepared export data, carrying the multi-config flag so the template can tell
+/// Prepared export data, carrying the single-config flag so the template can tell
 /// per-sheet output (one config per atlas) from merged output (one config for all),
 /// plus the extra variables available to the template.
 pub struct PreparedExport {
     pub rects: Vec<ExportRect>,
-    pub multi_config: bool,
+    pub single_config: bool,
     pub vars: Vars,
 }
 
@@ -213,7 +240,7 @@ fn prepare_data(
     remove_file_extension: bool,
     sheet_index: u32,
     image: &str,
-    multi_config: bool,
+    single_config: bool,
     vars: &Vars,
 ) -> PreparedExport {
     PreparedExport {
@@ -247,7 +274,7 @@ fn prepare_data(
                 },
             })
             .collect(),
-        multi_config,
+        single_config,
         vars: vars.clone(),
     }
 }
@@ -257,19 +284,30 @@ fn render(
     template: &str,
     rects: &[ExportRect],
     base_name: &str,
-    multi_config: bool,
+    single_config: bool,
     vars: &Vars,
+    images: &[AtlasInfo],
+    input_dir: &str,
+    options: &PackOptions,
 ) -> Result<String, String> {
     let sprites: Vec<serde_json::Value> = rects.iter().map(rect_to_json).collect();
+    let images: Vec<serde_json::Value> = images
+        .iter()
+        .map(|i| serde_json::json!({ "name": i.name, "index": i.index, "width": i.width, "height": i.height }))
+        .collect();
     let ctx = serde_json::json!({
         "base_name": base_name,
-        "multi_config": multi_config,
+        "single_config": single_config,
         "sprites": sprites,
+        "images": images,
+        "input_dir": input_dir,
         "vars": vars,
+        "options": options,
     });
 
     let mut env = minijinja::Environment::new();
     env.add_filter("to_json", to_json);
+    env.add_filter("strip_ext", strip_ext);
     env.render_str(template, ctx)
         .map_err(|e| format!("Template error: {}", e))
 }
@@ -277,6 +315,14 @@ fn render(
 /// JSON-encode a scalar (used for names so quotes/escapes stay valid).
 fn to_json(value: &minijinja::Value) -> String {
     serde_json::to_string(value).unwrap_or_default()
+}
+
+/// Strip the last `.ext` segment of a sprite name (e.g. `x.png` → `x`).
+fn strip_ext(value: &minijinja::Value) -> String {
+    match value.as_str() {
+        Some(s) => strip_extension(s),
+        None => String::new(),
+    }
 }
 
 fn rect_to_json(r: &ExportRect) -> serde_json::Value {
@@ -326,7 +372,7 @@ mod tests {
         ]
     }
 
-    /// Per-sheet (multi_config=true) template from before the multi-config feature:
+    /// Per-sheet (single_config=false) template from before the single-config feature:
     /// output must stay byte-identical to it so existing configs don't change.
     const OLD_HASH_TEMPLATE: &str = r#"{
   "name": "{{ base_name }}.png",
@@ -359,8 +405,8 @@ mod tests {
     fn per_sheet_output_matches_old_template() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let old = render(OLD_HASH_TEMPLATE, &rects, "atlas", true, &vars).unwrap();
-        let new = render(JSON_HASH_TEMPLATE, &rects, "atlas", true, &vars).unwrap();
+        let old = render(OLD_HASH_TEMPLATE, &rects, "atlas", false, &vars, &[], "", &PackOptions::default()).unwrap();
+        let new = render(JSON_HASH_TEMPLATE, &rects, "atlas", false, &vars, &[], "", &PackOptions::default()).unwrap();
         assert_eq!(old, new);
         assert!(!new.contains("image"));
         assert!(!new.contains("index"));
@@ -370,7 +416,7 @@ mod tests {
     fn merged_hash_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_HASH_TEMPLATE, &rects, "atlas", false, &vars).unwrap();
+        let out = render(JSON_HASH_TEMPLATE, &rects, "atlas", true, &vars, &[], "", &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         assert!(out.contains("\"image\": \"atlas-2.png\""));
@@ -383,7 +429,7 @@ mod tests {
     fn merged_array_output_has_image_and_index() {
         let rects = sample_rects();
         let vars = Vars::new();
-        let out = render(JSON_ARRAY_TEMPLATE, &rects, "atlas", false, &vars).unwrap();
+        let out = render(JSON_ARRAY_TEMPLATE, &rects, "atlas", true, &vars, &[], "", &PackOptions::default()).unwrap();
         assert!(out.contains("\"image\": \"atlas-1.png\""));
         assert!(out.contains("\"index\": 1"));
         // JsonArray mirrors the struct order: name, image, index
@@ -400,7 +446,59 @@ mod tests {
         vars.insert("author".into(), serde_json::json!("me"));
         vars.insert("version".into(), serde_json::json!(2));
         let tpl = "author={{ vars.author | to_json }} version={{ vars.version }}";
-        let out = render(tpl, &rects, "atlas", true, &vars).unwrap();
+        let out = render(tpl, &rects, "atlas", false, &vars, &[], "", &PackOptions::default()).unwrap();
         assert_eq!(out, "author=\"me\" version=2");
+    }
+
+    #[test]
+    fn images_input_dir_and_strip_ext_are_exposed() {
+        let rects = sample_rects();
+        let vars = Vars::new();
+        let images = vec![
+            AtlasInfo { name: "atlas-0.png".into(), index: 0, width: 64, height: 64 },
+            AtlasInfo { name: "atlas-1.png".into(), index: 1, width: 128, height: 32 },
+        ];
+        // Custom template exercising images (files array), input_dir (frames key) and
+        // strip_ext (sprite base name as key), with index used as the `source` field.
+        let tpl = r#"{
+  "files": [{% for img in images %}"{{ img.name }}"{% if not loop.last %},{% endif %}{% endfor %}],
+  "frames": { "{{ input_dir }}": {
+{% for r in sprites %}    "{{ r.name | strip_ext }}": { "source": {{ r.index }} }{% if not loop.last %},{% endif %}
+{% endfor %}  } }
+}"#;
+        let out = render(tpl, &rects, "atlas", true, &vars, &images, "ghosthand.img", &PackOptions::default()).unwrap();
+        assert!(out.contains("\"files\": [\"atlas-0.png\",\"atlas-1.png\"]"));
+        assert!(out.contains("\"ghosthand.img\""));
+        assert!(out.contains("\"a\": { \"source\": 1 }"));
+        assert!(out.contains("\"b\": { \"source\": 2 }"));
+        // frame/image/index are available on each sprite alongside the new context vars
+        let out2 = render(
+            "{% for r in sprites %}{{ r.image }} {{ r.index }};{% endfor %}",
+            &rects,
+            "atlas",
+            false,
+            &vars,
+            &[],
+            "",
+            &PackOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(out2, "atlas-1.png 1;atlas-2.png 2;");
+    }
+
+    #[test]
+    fn options_are_exposed_to_template_context() {
+        let rects = sample_rects();
+        let vars = Vars::new();
+        let opts = PackOptions {
+            width: 1024,
+            height: 512,
+            padding: 2,
+            single_config: true,
+            ..Default::default()
+        };
+        let tpl = "{{ options.width }}x{{ options.height }} pad={{ options.padding }} single={{ options.single_config }} name={{ options.texture_name }}";
+        let out = render(tpl, &rects, "atlas", false, &vars, &[], "", &opts).unwrap();
+        assert_eq!(out, "1024x512 pad=2 single=true name=atlas");
     }
 }

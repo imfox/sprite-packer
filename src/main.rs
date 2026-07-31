@@ -16,8 +16,8 @@ struct ConfigFile {
     suffix: Option<String>,
     #[serde(alias = "sheet-start-index")]
     sheet_start_index: Option<u32>,
-    #[serde(alias = "multi-config")]
-    multi_config: Option<bool>,
+    #[serde(alias = "single-config")]
+    single_config: Option<bool>,
     #[serde(alias = "power-of-two")]
     power_of_two: Option<bool>,
     #[serde(alias = "fixed-size")]
@@ -84,10 +84,10 @@ struct Cli {
     #[arg(long = "sheet-start-index", default_value = "0")]
     sheet_start_index: u32,
 
-    /// One metadata file per sheet (--multi-config or --multi-config false).
-    /// Set to false to merge all sheets into a single metadata file.
-    #[arg(long = "multi-config", num_args = 0..=1, default_missing_value = "true", default_value_t = true)]
-    multi_config: bool,
+    /// Merge all sheets into a single metadata file (--single-config or --single-config false).
+    /// Set to false to emit one metadata file per sheet.
+    #[arg(long = "single-config", num_args = 0..=1, default_missing_value = "true", default_value_t = false)]
+    single_config: bool,
 
     /// Max atlas width per sheet
     #[arg(long = "width", default_value = "2048")]
@@ -171,7 +171,7 @@ struct DefaultConfig {
     texture_name: &'static str,
     suffix: &'static str,
     sheet_start_index: u32,
-    multi_config: bool,
+    single_config: bool,
     power_of_two: bool,
     fixed_size: bool,
     width: u32,
@@ -203,7 +203,7 @@ fn default_config() -> DefaultConfig {
         texture_name: "atlas",
         suffix: "-",
         sheet_start_index: 0,
-        multi_config: true,
+        single_config: false,
         power_of_two: false,
         fixed_size: false,
         width: 2048,
@@ -281,13 +281,19 @@ fn main() {
         }
     };
 
-    let options = match build_options(&matches, &cli, &cfg) {
+    let mut options = match build_options(&matches, &cli, &cfg) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
     };
+
+    // Base name of the input directory, exposed to the template context as `input_dir`
+    options.input_dir = std::path::Path::new(&input)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
 
     // 1. Scan directory
     if !cli.quiet {
@@ -390,10 +396,10 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> Result<Pa
         } else {
             cfg.sheet_start_index.unwrap_or(d.sheet_start_index)
         },
-        multi_config: if cli_wins("multi_config") {
-            cli.multi_config
+        single_config: if cli_wins("single_config") {
+            cli.single_config
         } else {
-            cfg.multi_config.unwrap_or(d.multi_config)
+            cfg.single_config.unwrap_or(d.single_config)
         },
         width: if cli_wins("width") {
             cli.width
@@ -480,6 +486,8 @@ fn build_options(matches: &ArgMatches, cli: &Cli, cfg: &ConfigFile) -> Result<Pa
             cfg.template_extension.clone().or(d.template_extension)
         },
         vars: merge_vars(cfg, cli)?,
+        // Filled in from the input path's base name after the options are built.
+        input_dir: String::new(),
     })
 }
 
