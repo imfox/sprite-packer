@@ -310,7 +310,8 @@ fn render(
 
     let mut env = minijinja::Environment::new();
     env.add_filter("to_json", to_json);
-    env.add_filter("strip_ext", strip_ext);
+    env.add_filter("without_extname", without_extname);
+    env.add_filter("basename", basename);
     env.render_str(template, ctx)
         .map_err(|e| format!("Template error: {}", e))
 }
@@ -321,9 +322,17 @@ fn to_json(value: &minijinja::Value) -> String {
 }
 
 /// Strip the last `.ext` segment of a sprite name (e.g. `x.png` → `x`).
-fn strip_ext(value: &minijinja::Value) -> String {
+fn without_extname(value: &minijinja::Value) -> String {
     match value.as_str() {
         Some(s) => strip_extension(s),
+        None => String::new(),
+    }
+}
+
+/// Extract the last path segment (e.g. `/a/b/c` → `c`). Handles both `/` and `\`.
+fn basename(value: &minijinja::Value) -> String {
+    match value.as_str() {
+        Some(s) => s.rsplit(['/', '\\']).next().unwrap_or("").to_string(),
         None => String::new(),
     }
 }
@@ -426,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn images_input_dir_and_strip_ext_are_exposed() {
+    fn images_input_dir_and_without_extname_are_exposed() {
         let rects = sample_rects();
         let vars = Vars::new();
         let images = vec![
@@ -434,11 +443,11 @@ mod tests {
             AtlasInfo { name: "atlas-1.png".into(), index: 1, width: 128, height: 32 },
         ];
         // Custom template exercising images (files array), input_dir (frames key) and
-        // strip_ext (sprite base name as key), with index used as the `source` field.
+        // without_extname (sprite base name as key), with index used as the `source` field.
         let tpl = r#"{
   "files": [{% for img in images %}"{{ img.name }}"{% if not loop.last %},{% endif %}{% endfor %}],
   "frames": { "{{ input_dir }}": {
-{% for r in sprites %}    "{{ r.name | strip_ext }}": { "source": {{ r.index }} }{% if not loop.last %},{% endif %}
+{% for r in sprites %}    "{{ r.name | without_extname }}": { "source": {{ r.index }} }{% if not loop.last %},{% endif %}
 {% endfor %}  } }
 }"#;
         let out = render(tpl, &rects, true, &vars, &images, "ghosthand.img", &PackOptions::default()).unwrap();
@@ -473,6 +482,16 @@ mod tests {
         let tpl = "{% for r in sprites %}{{ r.image }}:{{ image_dict[r.image].width }}x{{ image_dict[r.image].height }};{% endfor %}";
         let out = render(tpl, &rects, true, &vars, &images, "", &PackOptions::default()).unwrap();
         assert_eq!(out, "atlas-1.png:64x64;atlas-2.png:128x32;");
+    }
+
+    #[test]
+    fn basename_filter_extracts_last_path_segment() {
+        let rects = sample_rects();
+        let mut vars = Vars::new();
+        vars.insert("win_path".into(), serde_json::json!("dir\\file.png"));
+        let tpl = "{{ '/a/b/c' | basename }}|{{ 'c' | basename }}|{{ vars.win_path | basename }}";
+        let out = render(tpl, &rects, false, &vars, &[], "", &PackOptions::default()).unwrap();
+        assert_eq!(out, "c|c|file.png");
     }
 
     #[test]

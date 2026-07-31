@@ -250,10 +250,11 @@ sprite-packer -i ./images -o ./out --template my.tpl \
 | `r.sprite_source_size` | `{x, y, w, h}` | 裁剪后的内容在原图中的区域 |
 | `r.source_size` | `{w, h}` | 原图完整尺寸 |
 
-模板语法遵循 [MiniJinja](https://jinja.palletsprojects.com/en/stable/templates/) 官方文档。本工具额外注册了两个过滤器：
+模板语法遵循 [MiniJinja](https://jinja.palletsprojects.com/en/stable/templates/) 官方文档。本工具额外注册了三个过滤器：
 
 - `to_json`：把值编码为 JSON 字面量（字符串自动转义引号，写 JSON 的字符串值时务必使用，如 `{{ r.name | to_json }}`）
-- `strip_ext`：去掉文件名的最后一个扩展名（`x.png` → `x`），可用作 `frames` 的键名：`{{ r.name | strip_ext | to_json }}`
+- `without_extname`：去掉文件名的最后一个扩展名（`x.png` → `x`），可用作 `frames` 的键名：`{{ r.name | without_extname | to_json }}`
+- `basename`：取出路径的最后一段（`/a/b/c` → `c`），同时兼容 Windows 反斜杠路径（`dir\file.png` → `file.png`）
 
 ### 示例（Starling XML）
 
